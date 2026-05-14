@@ -71,6 +71,7 @@ npm run compile
 npm run build
 npm test
 npm run node-test
+npx hardhat run scripts/deploy-v3.ts --build-profile production --network hardhatMainnet
 ```
 
 ## Scaffold Notes
