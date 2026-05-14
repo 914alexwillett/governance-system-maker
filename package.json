@@ -4,7 +4,12 @@
   "description": "A governance-controlled capital operating system MVP.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "clean": "hardhat clean",
+    "compile": "hardhat compile",
+    "build": "hardhat compile --build-profile production",
+    "test": "hardhat test",
+    "node-test": "hardhat test nodejs",
+    "test:node": "hardhat test nodejs"
   },
   "keywords": [],
   "author": "",

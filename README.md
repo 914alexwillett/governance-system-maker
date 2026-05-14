@@ -49,12 +49,35 @@ contracts/
   governance/
   treasury/
   distributor/
+  shared/
 
 scripts/
+  deploy/
+  init/
   config/
 
 test/
-  nodejs/
-    helpers/
+  node/
+  helpers/
 
 docs/
+```
+
+## Commands
+
+```bash
+npm install
+npm run compile
+npm run build
+npm test
+npm run node-test
+```
+
+## Scaffold Notes
+
+- `contracts/governance/` is reserved for `GovernanceToken`, `GovernanceGovernor`, and `GovernanceTimelock`
+- `contracts/treasury/` is reserved for treasury custody, classification, allocation, and spend logic
+- `contracts/distributor/` is reserved for funded payout event and claim logic
+- `contracts/shared/` is reserved for small shared interfaces or libraries if the MVP needs them
+- `scripts/deploy/`, `scripts/init/`, and `scripts/config/` keep deployment concerns separated
+- `test/node/` keeps node-based scenario coverage aligned with the on-chain module boundaries
