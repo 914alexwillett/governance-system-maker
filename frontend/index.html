@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Governance Capital Demo Dashboard</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="hero">
+        <p class="hero-kicker">Governance Capital Operating System</p>
+        <h1>Minimal Demo Dashboard</h1>
+        <p class="hero-copy">
+          Read-only local visibility for the current MVP. Configure an RPC endpoint,
+          point the dashboard at the latest deployed contracts, and inspect treasury,
+          budget, distributor, and timelock state without a wallet.
+        </p>
+      </header>
+
+      <main class="layout">
+        <section class="panel config-panel">
+          <div class="panel-header">
+            <h2>Dashboard Config</h2>
+            <p>
+              Use the defaults for a fresh local demo chain, or paste the latest
+              deployed addresses from your own run.
+            </p>
+          </div>
+
+          <form id="config-form" class="config-form">
+            <label>
+              <span>RPC URL</span>
+              <input name="rpcUrl" type="text" />
+            </label>
+
+            <div class="config-grid">
+              <label>
+                <span>GovernanceToken</span>
+                <input name="governanceToken" type="text" />
+              </label>
+              <label>
+                <span>Treasury</span>
+                <input name="treasury" type="text" />
+              </label>
+              <label>
+                <span>Distributor</span>
+                <input name="distributor" type="text" />
+              </label>
+              <label>
+                <span>GovernanceTimelock</span>
+                <input name="governanceTimelock" type="text" />
+              </label>
+              <label>
+                <span>GovernanceGovernor</span>
+                <input name="governanceGovernor" type="text" />
+              </label>
+            </div>
+
+            <div class="config-grid tall">
+              <label>
+                <span>Tracked buckets</span>
+                <textarea
+                  name="trackedBuckets"
+                  rows="4"
+                  placeholder="Label|0xBucketId"
+                ></textarea>
+              </label>
+              <label>
+                <span>Tracked distributions</span>
+                <textarea
+                  name="trackedDistributions"
+                  rows="4"
+                  placeholder="Label|0xDistributionId"
+                ></textarea>
+              </label>
+            </div>
+
+            <div class="button-row">
+              <button type="submit">Refresh dashboard</button>
+              <button id="reset-defaults" type="button" class="ghost-button">
+                Reset local demo defaults
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel status-panel">
+          <div class="panel-header">
+            <h2>Connection Status</h2>
+          </div>
+          <p id="status-banner" class="status-banner" data-tone="loading"></p>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Deployment Summary</h2>
+            <p>Current configured addresses for the active demo view.</p>
+          </div>
+          <div id="summary-panel" class="panel-grid"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Treasury State</h2>
+            <p>Native asset custody, classifications, and available operating capital.</p>
+          </div>
+          <div id="treasury-panel"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Budget Buckets</h2>
+            <p>
+              The current MVP does not enumerate buckets on-chain, so the dashboard
+              reads the tracked ids you configure above.
+            </p>
+          </div>
+          <div id="buckets-panel"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Distributor Events</h2>
+            <p>Tracked funded distributions and their current claim state.</p>
+          </div>
+          <div id="distributor-panel"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Timelock Wiring</h2>
+            <p>Ownership and governance execution routing for the current MVP.</p>
+          </div>
+          <div id="timelock-panel"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>Demo Notes</h2>
+            <p>What this dashboard assumes today and what is intentionally postponed.</p>
+          </div>
+          <div id="note-panel"></div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
