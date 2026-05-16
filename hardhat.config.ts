@@ -23,7 +23,7 @@ export default defineConfig({
     sources: "./contracts",
     tests: {
       solidity: "./test",
-      nodejs: "./test/node",
+      nodejs: "./test/nodejs",
     },
     cache: "./cache",
     artifacts: "./artifacts",

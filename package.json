@@ -6,10 +6,14 @@
   "scripts": {
     "clean": "hardhat clean",
     "compile": "hardhat compile",
+    "compile:prod": "hardhat compile --build-profile production",
     "build": "hardhat compile --build-profile production",
     "test": "hardhat test",
     "node-test": "hardhat test nodejs",
-    "test:node": "hardhat test nodejs"
+    "test:node": "hardhat test nodejs",
+    "test:node:prod": "hardhat test nodejs --build-profile production",
+    "deploy:local": "hardhat run scripts/deploy-v3.ts --build-profile production --network hardhatMainnet",
+    "seed:demo": "hardhat run scripts/seed-v3-demo.ts --build-profile production --network hardhatMainnet"
   },
   "keywords": [],
   "author": "",
