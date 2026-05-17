@@ -255,6 +255,49 @@
             </div>
 
             <div class="action-card">
+              <h3>Treasury Operating Actions</h3>
+              <p class="action-copy">
+                These forms prepare real treasury actions, but in a post-handoff
+                deployment they should move through the governor and timelock
+                rather than a direct owner wallet call.
+              </p>
+              <form id="treasury-governance-form" class="action-form">
+                <label>
+                  <span>Action</span>
+                  <select name="actionKey">
+                    <option value="allocate">Allocate budget to tracked bucket</option>
+                    <option value="spend">Spend from tracked bucket</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Tracked bucket</span>
+                  <select name="bucketId"></select>
+                </label>
+                <label>
+                  <span>Amount (ETH)</span>
+                  <input
+                    name="amountEth"
+                    type="text"
+                    value="0.25"
+                    inputmode="decimal"
+                  />
+                </label>
+                <label>
+                  <span>Recipient (used for spend)</span>
+                  <input
+                    name="recipient"
+                    type="text"
+                    placeholder="0xRecipientAddress"
+                  />
+                </label>
+                <div id="treasury-action-preview" class="action-preview"></div>
+                <button id="treasury-governance-button" type="submit">
+                  Submit treasury proposal
+                </button>
+              </form>
+            </div>
+
+            <div class="action-card">
               <h3>Claim Distribution</h3>
               <p class="action-copy">
                 Claim the remaining amount from one tracked distribution as the
@@ -275,9 +318,8 @@
           </div>
 
           <p class="action-note">
-            Bucket creation, allocation, reclassification, and distribution funding
-            remain read-only here because those module actions are timelock-owned
-            and should flow through governance rather than a direct wallet call.
+            This MVP treasury does not have a separate on-chain create-bucket action.
+            A bucket becomes meaningful when governance first allocates capital to its id.
           </p>
 
           <p id="write-status-banner" class="status-banner" data-tone="loading">
@@ -330,6 +372,19 @@
             </p>
           </div>
           <div id="roles-panel"></div>
+        </section>
+
+        <section id="governance-proposals-section" class="panel">
+          <div class="panel-header">
+            <h2>Governance Proposals</h2>
+            <p>
+              A first-pass governance console built around the real governor and
+              timelock flow. It can show proposal status, and on compatible local
+              setups it can create or advance a narrow set of single-action proposals.
+            </p>
+          </div>
+
+          <div id="governance-panel"></div>
         </section>
 
         <section id="timelock-wiring-section" class="panel">

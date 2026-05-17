@@ -392,6 +392,10 @@ button:disabled {
   font-size: 0.92rem;
 }
 
+.governance-summary {
+  margin-top: 18px;
+}
+
 .history-feed {
   display: grid;
   gap: 14px;
@@ -434,6 +438,13 @@ button:disabled {
   margin-top: 14px;
   color: var(--muted);
   font-size: 0.88rem;
+}
+
+.proposal-vote-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  margin-top: 16px;
 }
 
 .history-pill {
@@ -580,6 +591,44 @@ button:disabled {
 .list-table {
   display: grid;
   gap: 10px;
+}
+
+.distribution-feed {
+  display: grid;
+  gap: 14px;
+}
+
+.distribution-card {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.distribution-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.distribution-card-head code {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.distribution-metrics {
+  margin-top: 14px;
+  margin-bottom: 14px;
+}
+
+.distribution-note {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
 }
 
 .list-head,

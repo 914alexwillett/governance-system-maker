@@ -246,12 +246,16 @@ What it does today:
 - reads treasury balances and classifications
 - reads tracked budget bucket state
 - reads tracked distributor event state
+- reads governance proposals, vote totals, and proposal status
 - shows a role and control view for ownership and governance relationships
 - reads timelock ownership wiring
 - shows a lightweight recent activity feed from treasury, distributor, and governor logs
 - connects an injected wallet such as MetaMask
 - funds treasury ETH custody directly from the connected wallet
-- claims the remaining amount from one tracked funded distribution
+- exposes a small treasury action form for bucket allocation and bucket spend proposals
+- presents distributor events as claim-oriented cards with asset, funded, claimed, remaining, and active status details
+- claims the remaining amount from one tracked funded distribution when the selected event is active and the connected wallet is on the right chain
+- supports a narrow single-action governance proposal flow with vote, queue, and execute actions when the connected wallet and proposal state allow it
 
 What it intentionally does not do yet:
 - direct governance-owned bucket management
@@ -290,6 +294,8 @@ http://127.0.0.1:4173
 - connect the wallet to the dashboard
 - switch the wallet to the same chain as the dashboard RPC if prompted
 - use `Fund Treasury` to send ETH into treasury custody
+- use `Treasury Operating Actions` to prepare a narrow treasury proposal for budget allocation or bucket spend when the connected wallet has enough delegated votes
+- review `Distributor Events` to see which tracked event is active and why it is or is not claimable
 - use `Claim Distribution` to claim the remaining amount from the tracked seeded distribution
 
 How a new user should use the guided flow:
@@ -300,8 +306,26 @@ How a new user should use the guided flow:
 
 Why the write actions are intentionally small:
 - treasury classification, bucket policy, and distributor funding are timelock-owned after bootstrap
-- those actions are meant to flow through governance, so the dashboard keeps them read-only for now
+- those actions are meant to flow through governance, so the dashboard only exposes a very small proposal composer instead of direct module admin buttons
 - treasury funding and self-claim distribution actions are the two meaningful interactions that fit the current MVP ownership model without bypassing governance
+
+What the current treasury action forms support:
+- direct ETH funding into treasury custody
+- preparing a governance proposal to allocate budget to a tracked bucket
+- preparing a governance proposal to spend from a tracked bucket to a recipient
+- explaining the current MVP limitation that there is no separate on-chain create-bucket call, so a bucket effectively comes into existence on first allocation
+
+What the current distributor claim view supports:
+- showing tracked distribution events with asset, total amount, funded amount, claimed amount, remaining amount, and active or closed status
+- explaining claim readiness in plain language, including wallet connection and chain-match requirements
+- selecting an event from the distributor view and using the real self-claim flow for the full remaining funded amount
+- being honest about the current MVP limitation that richer entitlement logic or proof-based claims are not part of this flow yet
+
+What the current governance view supports:
+- reading proposals from real governor events plus live on-chain proposal state
+- creating a small set of honest single-action proposals that match the current governor contract
+- voting, queueing, and executing proposals when the connected wallet is on the right chain and the proposal state allows it
+- showing the practical MVP limitation that broader multi-call governance actions are not in this UI yet because the governor contract itself is still intentionally single-action
 
 What the current activity feed supports:
 - treasury funding, capital classification, budget allocation, budget deallocation, and bucket spending

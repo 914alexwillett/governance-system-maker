@@ -1,4 +1,8 @@
 const CLAIM_SELECTOR = "0x4b2667f2";
+const GOVERNOR_PROPOSE_SELECTOR = "0x82ff16c1";
+const GOVERNOR_CAST_VOTE_SELECTOR = "0x56781388";
+const GOVERNOR_QUEUE_SELECTOR = "0xddf0b009";
+const GOVERNOR_EXECUTE_SELECTOR = "0xfe0d94c1";
 
 export function getWalletProvider() {
   return window.ethereum;
@@ -119,6 +123,50 @@ export async function claimDistribution({
   });
 }
 
+export async function createGovernanceProposal({
+  governorAddress,
+  target,
+  value = 0n,
+  data,
+  description,
+}) {
+  return sendContractTransaction(
+    governorAddress,
+    encodeProposeCalldata(target, value, data, description),
+  );
+}
+
+export async function castGovernanceVote({
+  governorAddress,
+  proposalId,
+  support,
+}) {
+  return sendContractTransaction(
+    governorAddress,
+    GOVERNOR_CAST_VOTE_SELECTOR + encodeUint(proposalId) + encodeUint(support),
+  );
+}
+
+export async function queueGovernanceProposal({
+  governorAddress,
+  proposalId,
+}) {
+  return sendContractTransaction(
+    governorAddress,
+    GOVERNOR_QUEUE_SELECTOR + encodeUint(proposalId),
+  );
+}
+
+export async function executeGovernanceProposal({
+  governorAddress,
+  proposalId,
+}) {
+  return sendContractTransaction(
+    governorAddress,
+    GOVERNOR_EXECUTE_SELECTOR + encodeUint(proposalId),
+  );
+}
+
 export async function waitForTransactionReceipt(txHash) {
   const provider = requireProvider();
 
@@ -177,12 +225,67 @@ export function chainLabel(chainIdHex) {
   return `Chain ${normalized}`;
 }
 
+export function encodeTreasuryClassifyCapital({ amountWei }) {
+  return (
+    "0xe2da1324" +
+    encodeAddress("0x0000000000000000000000000000000000000000") +
+    encodeUint(1n) +
+    encodeUint(amountWei)
+  );
+}
+
+export function encodeTreasuryAllocateBudget({ bucketId, amountWei }) {
+  return (
+    "0xfc8ae919" +
+    encodeBytes32(bucketId) +
+    encodeAddress("0x0000000000000000000000000000000000000000") +
+    encodeUint(amountWei)
+  );
+}
+
+export function encodeTreasurySpend({ bucketId, recipient, amountWei }) {
+  return (
+    "0x9fd832f1" +
+    encodeBytes32(bucketId) +
+    encodeAddress("0x0000000000000000000000000000000000000000") +
+    encodeAddress(recipient) +
+    encodeUint(amountWei)
+  );
+}
+
+export function encodeDistributorCreateDistribution({ distributionId, amountWei }) {
+  return (
+    "0xae8427bd" +
+    encodeBytes32(distributionId) +
+    encodeAddress("0x0000000000000000000000000000000000000000") +
+    encodeUint(amountWei)
+  );
+}
+
 function encodeClaimCalldata(distributionId, recipient, amountWei) {
   return (
     CLAIM_SELECTOR +
     encodeBytes32(distributionId) +
     encodeAddress(recipient) +
     encodeUint(amountWei)
+  );
+}
+
+function encodeProposeCalldata(target, value, data, description) {
+  const normalizedData = normalizeDynamicBytes(data);
+  const normalizedDescription = stringToHexString(description);
+  const bytesOffset = 128n;
+  const bytesSectionLength = BigInt(64 + padHexLength(normalizedData.length));
+  const descriptionOffset = bytesOffset + (bytesSectionLength / 2n);
+
+  return (
+    GOVERNOR_PROPOSE_SELECTOR +
+    encodeAddress(target) +
+    encodeUint(value) +
+    encodeUint(bytesOffset) +
+    encodeUint(descriptionOffset) +
+    encodeDynamicBytes(normalizedData) +
+    encodeDynamicBytes(normalizedDescription)
   );
 }
 
@@ -204,8 +307,27 @@ function encodeUint(value) {
   return BigInt(value).toString(16).padStart(64, "0");
 }
 
+function encodeDynamicBytes(value) {
+  const normalized = normalizeDynamicBytes(value);
+  return encodeUint(normalized.length / 2) + normalized.padEnd(padHexLength(normalized.length), "0");
+}
+
 function toQuantity(value) {
   return `0x${BigInt(value).toString(16)}`;
+}
+
+async function sendContractTransaction(to, data) {
+  const provider = requireProvider();
+  const from = await requireAccount(provider);
+
+  return provider.request({
+    method: "eth_sendTransaction",
+    params: [{
+      from,
+      to,
+      data,
+    }],
+  });
 }
 
 async function requireAccount(provider) {
@@ -245,4 +367,18 @@ function isUnknownChainError(error) {
 
 function normalizeHex(value) {
   return value.toLowerCase();
+}
+
+function normalizeDynamicBytes(value) {
+  return normalizeHex(value).replace(/^0x/, "");
+}
+
+function stringToHexString(value) {
+  return Array.from(new TextEncoder().encode(value))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function padHexLength(length) {
+  return Math.ceil(length / 64) * 64;
 }

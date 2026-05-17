@@ -4,9 +4,17 @@ import {
   deploymentBlueprint,
   deploymentProfiles,
 } from "./deployer-config.js";
-import { getNativeAssetAddress, loadDashboardState } from "./rpc.js";
+import { getNativeAssetAddress, loadDashboardState, readTokenVotes } from "./rpc.js";
 import {
   chainLabel,
+  createGovernanceProposal,
+  castGovernanceVote,
+  queueGovernanceProposal,
+  executeGovernanceProposal,
+  encodeTreasuryClassifyCapital,
+  encodeTreasuryAllocateBudget,
+  encodeTreasurySpend,
+  encodeDistributorCreateDistribution,
   claimDistribution,
   connectWallet,
   ensureWalletOnChain,
@@ -104,6 +112,7 @@ const treasuryPanel = document.querySelector("#treasury-panel");
 const bucketsPanel = document.querySelector("#buckets-panel");
 const distributorPanel = document.querySelector("#distributor-panel");
 const rolesPanel = document.querySelector("#roles-panel");
+const governancePanel = document.querySelector("#governance-panel");
 const timelockPanel = document.querySelector("#timelock-panel");
 const historyPanel = document.querySelector("#history-panel");
 const notePanel = document.querySelector("#note-panel");
@@ -112,16 +121,20 @@ const resetButton = document.querySelector("#reset-defaults");
 const connectWalletButton = document.querySelector("#connect-wallet");
 const switchWalletNetworkButton = document.querySelector("#switch-wallet-network");
 const fundTreasuryForm = document.querySelector("#fund-treasury-form");
+const treasuryGovernanceForm = document.querySelector("#treasury-governance-form");
+const treasuryActionPreview = document.querySelector("#treasury-action-preview");
 const claimDistributionForm = document.querySelector("#claim-distribution-form");
 const claimDistributionSelect = document.querySelector("#claim-distribution-select");
 const claimPreview = document.querySelector("#claim-preview");
 const fundTreasuryButton = document.querySelector("#fund-treasury-button");
+const treasuryGovernanceButton = document.querySelector("#treasury-governance-button");
 const claimDistributionButton = document.querySelector("#claim-distribution-button");
 
 let latestState = null;
 let latestConfig = null;
 let latestLaunchPlan = null;
 let guidedDemoStepIndex = loadGuidedDemoStepIndex();
+let latestWalletVotes = 0n;
 let walletState = {
   available: false,
   account: null,
@@ -159,6 +172,7 @@ async function bootstrap() {
   hydrateForm(config);
   latestConfig = config;
   walletState = await getWalletState();
+  latestWalletVotes = await refreshWalletVotes(config);
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -183,6 +197,24 @@ async function bootstrap() {
     await handleFundTreasury();
   });
 
+  treasuryGovernanceForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await handleTreasuryGovernanceAction();
+  });
+
+  treasuryGovernanceForm.actionKey.addEventListener("change", () => {
+    renderTreasuryActionForm(latestState);
+  });
+  treasuryGovernanceForm.bucketId.addEventListener("change", () => {
+    renderTreasuryActionForm(latestState);
+  });
+  treasuryGovernanceForm.amountEth.addEventListener("input", () => {
+    renderTreasuryActionForm(latestState);
+  });
+  treasuryGovernanceForm.recipient.addEventListener("input", () => {
+    renderTreasuryActionForm(latestState);
+  });
+
   claimDistributionForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     await handleClaimDistribution();
@@ -194,11 +226,15 @@ async function bootstrap() {
 
   watchWalletChanges(async () => {
     walletState = await getWalletState();
+    latestWalletVotes = await refreshWalletVotes(latestConfig);
     renderWalletPanel();
+    renderTreasuryActionForm(latestState);
+    renderGovernance(latestState);
     renderClaimPreview();
   });
 
   renderWalletPanel();
+  renderTreasuryActionForm(latestState);
   renderClaimPreview();
   void refresh();
 }
@@ -227,22 +263,26 @@ async function refresh() {
   try {
     const state = await loadDashboardState(config);
     latestState = state;
+    hydrateClaimSelector(config, state);
     renderSummary(config, state);
     renderTreasury(state.treasury);
     renderBuckets(state.treasury.buckets);
     renderDistributor(state.distributor);
     renderRoles(state);
+    renderGovernance(state);
     renderTimelock(state.timelock);
     renderHistory(state.history);
     renderNotes(config, state);
     renderWalletPanel();
-    hydrateClaimSelector(config, state);
+    renderTreasuryActionForm(state);
     renderClaimPreview();
     setStatus("Dashboard updated from the current chain state.", "success");
   } catch (error) {
     latestState = null;
     clearPanels();
     renderWalletPanel();
+    renderTreasuryActionForm(null);
+    renderGovernance(null);
     renderClaimPreview();
     setStatus(
       `${toMessage(error)} Check that the local chain is running and the configured addresses match the latest seeded deployment.`,
@@ -255,7 +295,9 @@ async function handleConnectWallet() {
   try {
     setWriteStatus("Requesting wallet connection.", "loading");
     walletState = await connectWallet();
+    latestWalletVotes = await refreshWalletVotes(latestConfig);
     renderWalletPanel();
+    renderGovernance(latestState);
     renderClaimPreview();
     setWriteStatus(
       `Connected ${shortenAddress(walletState.account)} on ${chainLabel(walletState.chainId)}.`,
@@ -274,7 +316,9 @@ async function handleSwitchWalletNetwork() {
     setWriteStatus("Switching the connected wallet to the dashboard network.", "loading");
     await ensureWalletOnChain(rpcChainId, config.rpcUrl);
     walletState = await getWalletState();
+    latestWalletVotes = await refreshWalletVotes(config);
     renderWalletPanel();
+    renderGovernance(latestState);
     renderClaimPreview();
     setWriteStatus(`Wallet switched to ${chainLabel(rpcChainId)}.`, "success");
   } catch (error) {
@@ -349,6 +393,37 @@ async function handleClaimDistribution() {
     await refresh();
     setWriteStatus(
       `Claim confirmed for ${distribution.label}: ${formatEth(claimableAmount)}.`,
+      "success",
+    );
+  } catch (error) {
+    setWriteStatus(toMessage(error), "error");
+  }
+}
+
+async function handleTreasuryGovernanceAction() {
+  try {
+    const state = requireState();
+    const config = requireConfig();
+    const rpcChainId = requireRpcChainId();
+    const draft = buildTreasuryActionDraft(state);
+
+    setWriteStatus("Preparing treasury governance proposal.", "loading");
+    await ensureWalletOnChain(rpcChainId, config.rpcUrl);
+
+    const txHash = await createGovernanceProposal({
+      governorAddress: config.addresses.governanceGovernor,
+      target: config.addresses.treasury,
+      value: 0n,
+      data: draft.data,
+      description: draft.description,
+    });
+
+    setWriteStatus(`Treasury proposal submitted: ${txHash}`, "loading");
+    await waitForTransactionReceipt(txHash);
+    latestWalletVotes = await refreshWalletVotes(config);
+    await refresh();
+    setWriteStatus(
+      "Treasury proposal created. The treasury state will change only after voting, queueing, and execution complete.",
       "success",
     );
   } catch (error) {
@@ -563,6 +638,16 @@ function renderBuckets(buckets) {
               <span>
                 <strong>${escapeHtml(bucket.label)}</strong>
                 <code>${escapeHtml(bucket.id)}</code>
+                <div class="button-row compact-row">
+                  <button
+                    type="button"
+                    class="ghost-button"
+                    data-bucket-action="use"
+                    data-bucket-id="${bucket.id}"
+                  >
+                    Use in treasury form
+                  </button>
+                </div>
               </span>
               <span>${formatEth(bucket.allocated)}</span>
               <span>${formatEth(bucket.spent)}</span>
@@ -572,50 +657,100 @@ function renderBuckets(buckets) {
         }).join("")}
       </div>
     `;
+
+  bucketsPanel.querySelectorAll("[data-bucket-action='use']").forEach((button) => {
+    button.addEventListener("click", () => {
+      treasuryGovernanceForm.bucketId.value = button.dataset.bucketId ?? "";
+      renderTreasuryActionForm(latestState);
+      document.querySelector("#wallet-actions-section")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  });
 }
 
 function renderDistributor(distributor) {
+  const activeCount = distributor.distributions.filter((distribution) =>
+    distribution.status === "loaded" && distribution.stateCode === 1
+  ).length;
+
   distributorPanel.innerHTML = `
     <div class="panel-grid compact">
       ${metricCard("Owner", distributor.owner)}
       ${metricCard("Total outstanding", formatEth(distributor.totalOutstanding))}
+      ${metricCard("Active events", activeCount)}
     </div>
-    <div class="list-table">
-      <div class="list-head distributor-head">
-        <span>Distribution</span>
-        <span>Total</span>
-        <span>Funded</span>
-        <span>Claimed</span>
-        <span>Status</span>
-      </div>
+    <div class="distribution-feed">
       ${distributor.distributions.map((distribution) => {
         if (distribution.status === "error") {
           return `
-            <div class="list-row error-row distributor-row">
-              <span>
+            <article class="distribution-card error-row">
+              <div>
                 <strong>${escapeHtml(distribution.label)}</strong>
                 <code>${escapeHtml(distribution.id)}</code>
-              </span>
-              <span class="full-row" data-span="4">${escapeHtml(distribution.error)}</span>
-            </div>
+              </div>
+              <p class="distribution-note">${escapeHtml(distribution.error)}</p>
+            </article>
           `;
         }
 
+        const remaining = distribution.fundedAmount - distribution.claimedAmount;
+        const claimView = describeDistributionClaimState(distribution);
+        const isSelected = claimDistributionSelect.value === distribution.id;
+
         return `
-          <div class="list-row distributor-row">
-            <span>
-              <strong>${escapeHtml(distribution.label)}</strong>
-              <code>${escapeHtml(distribution.id)}</code>
-            </span>
-            <span>${formatEth(distribution.totalAmount)}</span>
-            <span>${formatEth(distribution.fundedAmount)}</span>
-            <span>${formatEth(distribution.claimedAmount)}</span>
-            <span>${distributionStatus(distribution.stateCode)}</span>
-          </div>
+          <article class="distribution-card">
+            <div class="distribution-card-head">
+              <div>
+                <strong>${escapeHtml(distribution.label)}</strong>
+                <code>${escapeHtml(distribution.id)}</code>
+              </div>
+              <span class="role-badge" data-tone="${escapeHtml(claimView.tone)}">
+                ${escapeHtml(distributionStatus(distribution.stateCode))}
+              </span>
+            </div>
+            <div class="panel-grid compact distribution-metrics">
+              ${metricCard("Asset", distributionAssetLabel(distribution.asset))}
+              ${metricCard("Total event amount", formatEth(distribution.totalAmount))}
+              ${metricCard("Funded", formatEth(distribution.fundedAmount))}
+              ${metricCard("Claimed", formatEth(distribution.claimedAmount))}
+              ${metricCard("Remaining", formatEth(remaining))}
+            </div>
+            <p class="distribution-note">${escapeHtml(claimView.detail)}</p>
+            <div class="button-row compact-row">
+              <button
+                type="button"
+                class="ghost-button"
+                data-distribution-action="select"
+                data-distribution-id="${distribution.id}"
+              >
+                ${isSelected ? "Selected in claim flow" : "Use in claim flow"}
+              </button>
+            </div>
+          </article>
         `;
       }).join("")}
     </div>
+    <p class="action-note">
+      Current claim behavior is intentionally simple: each recipient can self-claim once,
+      and the current demo flow claims the full remaining amount for the selected event.
+    </p>
   `;
+
+  distributorPanel.querySelectorAll("[data-distribution-action='select']").forEach((button) => {
+    button.addEventListener("click", () => {
+      claimDistributionSelect.value = button.dataset.distributionId ?? "";
+      if (latestState !== null) {
+        renderDistributor(latestState.distributor);
+      }
+      renderClaimPreview();
+      document.querySelector("#wallet-actions-section")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  });
 }
 
 function renderRoles(state) {
@@ -656,6 +791,385 @@ function renderRoles(state) {
   `;
 }
 
+function renderGovernance(state) {
+  if (state === null) {
+    governancePanel.innerHTML = emptyState("Refresh the dashboard to load governance proposals.");
+    return;
+  }
+
+  const governance = state.governance;
+  const walletReady = walletState.available &&
+    walletState.account !== null &&
+    normalizeChainId(state.rpcChainId) === normalizeChainId(walletState.chainId);
+  const composerOptions = governanceComposerOptions(state);
+
+  governancePanel.innerHTML = `
+    <div class="roles-overview">
+      <div class="role-status-card" data-mode="success">
+        <span class="eyebrow">Proposal threshold</span>
+        <strong>${formatEth(governance.proposalThreshold)}</strong>
+        <p>The connected proposer needs at least this much delegated voting power to create a proposal.</p>
+      </div>
+      <div class="role-status-card" data-mode="${latestWalletVotes >= governance.proposalThreshold ? "success" : "warning"}">
+        <span class="eyebrow">Connected wallet votes</span>
+        <strong>${walletState.account === null ? "Not connected" : formatEth(latestWalletVotes)}</strong>
+        <p>${walletReady
+          ? latestWalletVotes >= governance.proposalThreshold
+            ? "This wallet appears to have enough delegated votes to create a proposal."
+            : "This wallet can still read and vote, but it does not appear to meet the current proposal threshold."
+          : "Connect a wallet on the same chain to create or advance proposals."}</p>
+      </div>
+      <div class="role-status-card" data-mode="success">
+        <span class="eyebrow">Voting window</span>
+        <strong>${governance.votingDelay.toString()} delay / ${governance.votingPeriod.toString()} period</strong>
+        <p>Proposals wait through the voting delay, then remain open for the voting period before queueing and execution.</p>
+      </div>
+    </div>
+    <div class="actions-layout">
+      <div class="action-card">
+        <h3>Create Proposal</h3>
+        <p class="action-copy">
+          This MVP composer supports a very small set of real single-action proposals
+          that match the current governor contract.
+        </p>
+        <form id="governance-proposal-form" class="action-form">
+          <label>
+            <span>Action template</span>
+            <select name="actionKey">
+              ${composerOptions.map((option) => `
+                <option value="${escapeHtml(option.key)}">${escapeHtml(option.label)}</option>
+              `).join("")}
+            </select>
+          </label>
+          <label>
+            <span>Amount (ETH)</span>
+            <input name="amountEth" type="text" value="${composerOptions[0]?.defaultAmountEth ?? "1"}" inputmode="decimal" />
+          </label>
+          <label>
+            <span>Description</span>
+            <input name="description" type="text" value="${escapeHtml(composerOptions[0]?.defaultDescription ?? "")}" />
+          </label>
+          <div id="governance-proposal-preview" class="action-preview"></div>
+          <button id="create-governance-proposal" type="submit" ${walletReady ? "" : "disabled"}>
+            Submit proposal
+          </button>
+        </form>
+      </div>
+      <div class="action-card">
+        <h3>What This Can Do</h3>
+        <ul class="notes-list compact-list">
+          <li>Read proposal status, vote totals, and the intended action description.</li>
+          <li>Create a small set of single-action proposals when the connected wallet has enough delegated votes.</li>
+          <li>Vote, queue, and execute proposals when their state allows it.</li>
+          <li>Stay aligned with the real governor to timelock flow instead of faking a broader governance portal.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="history-summary governance-summary">
+      <span>Total proposals: ${governance.proposalCount.toString()}</span>
+      <span>Quorum numerator: ${governance.quorumNumeratorBps.toString()} bps</span>
+      <span>Governor address: ${escapeHtml(shortenAddress(governance.governorAddress))}</span>
+    </div>
+    ${governance.proposals.length === 0 ? emptyState("No proposals have been created on this deployment yet.") : `
+      <div class="history-feed">
+        ${governance.proposals.map((proposal) => `
+          <article class="history-item">
+            <div class="history-head">
+              <span class="history-pill" data-category="governance">
+                Proposal #${proposal.proposalId}
+              </span>
+              <span class="history-meta">
+                ${escapeHtml(proposalStateLabel(proposal.stateCode))} · block ${proposal.blockNumber}
+              </span>
+            </div>
+            <strong class="history-title">${escapeHtml(proposal.description || `Single-action proposal #${proposal.proposalId}`)}</strong>
+            <p class="history-detail">
+              Target ${escapeHtml(shortenAddress(proposal.target))} · proposer ${escapeHtml(shortenAddress(proposal.proposer))}
+            </p>
+            <div class="proposal-vote-grid">
+              ${metricCard("For", formatEth(proposal.forVotes))}
+              ${metricCard("Against", formatEth(proposal.againstVotes))}
+              ${metricCard("Abstain", formatEth(proposal.abstainVotes))}
+              ${metricCard("Snapshot", proposal.snapshot.toString())}
+              ${metricCard("Deadline", proposal.deadline.toString())}
+              ${metricCard("Call value", formatEth(proposal.value))}
+            </div>
+            <div class="button-row compact-row">
+              <button type="button" class="ghost-button" data-proposal-action="vote" data-support="1" data-proposal-id="${proposal.proposalId}" ${walletReady && proposal.stateCode === 1 ? "" : "disabled"}>Vote for</button>
+              <button type="button" class="ghost-button" data-proposal-action="vote" data-support="0" data-proposal-id="${proposal.proposalId}" ${walletReady && proposal.stateCode === 1 ? "" : "disabled"}>Vote against</button>
+              <button type="button" class="ghost-button" data-proposal-action="vote" data-support="2" data-proposal-id="${proposal.proposalId}" ${walletReady && proposal.stateCode === 1 ? "" : "disabled"}>Abstain</button>
+              <button type="button" class="ghost-button" data-proposal-action="queue" data-proposal-id="${proposal.proposalId}" ${walletReady && proposal.stateCode === 3 ? "" : "disabled"}>Queue</button>
+              <button type="button" class="ghost-button" data-proposal-action="execute" data-proposal-id="${proposal.proposalId}" ${walletReady && proposal.stateCode === 4 ? "" : "disabled"}>Execute</button>
+            </div>
+          </article>
+        `).join("")}
+      </div>
+    `}
+  `;
+
+  const proposalForm = document.querySelector("#governance-proposal-form");
+  const actionSelect = proposalForm?.actionKey;
+  if (proposalForm !== null) {
+    updateGovernanceProposalPreview(state);
+    proposalForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await handleCreateGovernanceProposal();
+    });
+    actionSelect?.addEventListener("change", () => {
+      const selected = composerOptions.find((option) => option.key === actionSelect.value);
+      if (selected !== undefined) {
+        proposalForm.amountEth.value = selected.defaultAmountEth;
+        proposalForm.description.value = selected.defaultDescription;
+      }
+      updateGovernanceProposalPreview(state);
+    });
+    proposalForm.amountEth.addEventListener("input", () => updateGovernanceProposalPreview(state));
+    proposalForm.description.addEventListener("input", () => updateGovernanceProposalPreview(state));
+  }
+
+  governancePanel.querySelectorAll("[data-proposal-action]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const proposalId = Number(button.dataset.proposalId);
+      const action = button.dataset.proposalAction;
+
+      if (action === "vote") {
+        await handleGovernanceVote(proposalId, Number(button.dataset.support));
+        return;
+      }
+      if (action === "queue") {
+        await handleGovernanceQueue(proposalId);
+        return;
+      }
+      if (action === "execute") {
+        await handleGovernanceExecute(proposalId);
+      }
+    });
+  });
+}
+
+function governanceComposerOptions(state) {
+  const bucket = latestConfig?.trackedBuckets[0];
+  const distribution = latestConfig?.trackedDistributions[0];
+
+  return [
+    {
+      key: "classify-operating",
+      label: "Classify treasury capital as operating",
+      defaultAmountEth: "1",
+      defaultDescription: "Classify 1 ETH as operating capital",
+      buildDraft(amountWei, description) {
+        return {
+          target: state.addresses.treasury,
+          value: 0n,
+          data: encodeTreasuryClassifyCapital({ amountWei }),
+          description,
+          preview: `Treasury will classify ${formatEth(amountWei)} as operating capital.`,
+        };
+      },
+    },
+    {
+      key: "allocate-budget",
+      label: bucket === undefined
+        ? "Allocate operating budget to tracked bucket"
+        : `Allocate operating budget to ${bucket.label}`,
+      defaultAmountEth: "1",
+      defaultDescription: bucket === undefined
+        ? "Allocate 1 ETH to the tracked operating bucket"
+        : `Allocate 1 ETH to ${bucket.label}`,
+      buildDraft(amountWei, description) {
+        if (bucket === undefined) {
+          throw new Error("Add at least one tracked bucket before composing a budget allocation proposal.");
+        }
+
+        return {
+          target: state.addresses.treasury,
+          value: 0n,
+          data: encodeTreasuryAllocateBudget({
+            bucketId: bucket.id,
+            amountWei,
+          }),
+          description,
+          preview: `Treasury will allocate ${formatEth(amountWei)} to ${bucket.label}.`,
+        };
+      },
+    },
+    {
+      key: "create-distribution",
+      label: distribution === undefined
+        ? "Create a tracked distribution event"
+        : `Create distribution for ${distribution.label}`,
+      defaultAmountEth: "1",
+      defaultDescription: distribution === undefined
+        ? "Create a 1 ETH community distribution"
+        : `Create ${distribution.label} for 1 ETH`,
+      buildDraft(amountWei, description) {
+        if (distribution === undefined) {
+          throw new Error("Add at least one tracked distribution before composing a distribution proposal.");
+        }
+
+        return {
+          target: state.addresses.distributor,
+          value: 0n,
+          data: encodeDistributorCreateDistribution({
+            distributionId: distribution.id,
+            amountWei,
+          }),
+          description,
+          preview: `Distributor will create ${distribution.label} with ${formatEth(amountWei)} available for funding.`,
+        };
+      },
+    },
+  ];
+}
+
+function updateGovernanceProposalPreview(state) {
+  const proposalForm = document.querySelector("#governance-proposal-form");
+  const preview = document.querySelector("#governance-proposal-preview");
+
+  if (proposalForm === null || preview === null) {
+    return;
+  }
+
+  try {
+    const draft = buildGovernanceProposalDraft(state, proposalForm);
+    preview.innerHTML = `
+      <strong>${escapeHtml(proposalTargetLabel(draft.target, state))}</strong>
+      <span>${escapeHtml(draft.preview)}</span>
+      <span>Description: ${escapeHtml(draft.description)}</span>
+    `;
+  } catch (error) {
+    preview.innerHTML = escapeHtml(toMessage(error));
+  }
+}
+
+function buildGovernanceProposalDraft(state, proposalForm) {
+  const composerOptions = governanceComposerOptions(state);
+  const selected = composerOptions.find((option) => option.key === proposalForm.actionKey.value);
+
+  if (selected === undefined) {
+    throw new Error("Choose a supported proposal template.");
+  }
+
+  const amountWei = parseEthAmount(proposalForm.amountEth.value);
+
+  if (amountWei <= 0n) {
+    throw new Error("Proposal amount must be greater than zero.");
+  }
+
+  const description = proposalForm.description.value.trim();
+
+  if (description.length === 0) {
+    throw new Error("Proposal description is required.");
+  }
+
+  return selected.buildDraft(amountWei, description);
+}
+
+async function handleCreateGovernanceProposal() {
+  try {
+    const state = requireState();
+    const config = requireConfig();
+    const rpcChainId = requireRpcChainId();
+    const proposalForm = document.querySelector("#governance-proposal-form");
+
+    if (proposalForm === null) {
+      throw new Error("The proposal form is not available yet.");
+    }
+
+    const draft = buildGovernanceProposalDraft(state, proposalForm);
+
+    setWriteStatus("Preparing governance proposal transaction.", "loading");
+    await ensureWalletOnChain(rpcChainId, config.rpcUrl);
+
+    const txHash = await createGovernanceProposal({
+      governorAddress: config.addresses.governanceGovernor,
+      target: draft.target,
+      value: draft.value,
+      data: draft.data,
+      description: draft.description,
+    });
+
+    setWriteStatus(`Proposal submitted: ${txHash}`, "loading");
+    await waitForTransactionReceipt(txHash);
+    latestWalletVotes = await refreshWalletVotes(config);
+    await refresh();
+    setWriteStatus(
+      "Proposal created. It will appear in the governance list after the dashboard refresh completes.",
+      "success",
+    );
+  } catch (error) {
+    setWriteStatus(toMessage(error), "error");
+  }
+}
+
+async function handleGovernanceVote(proposalId, support) {
+  try {
+    const config = requireConfig();
+    const rpcChainId = requireRpcChainId();
+
+    setWriteStatus(`Submitting vote for proposal #${proposalId}.`, "loading");
+    await ensureWalletOnChain(rpcChainId, config.rpcUrl);
+
+    const txHash = await castGovernanceVote({
+      governorAddress: config.addresses.governanceGovernor,
+      proposalId,
+      support,
+    });
+
+    setWriteStatus(`Vote submitted: ${txHash}`, "loading");
+    await waitForTransactionReceipt(txHash);
+    latestWalletVotes = await refreshWalletVotes(config);
+    await refresh();
+    setWriteStatus(`Vote recorded for proposal #${proposalId}.`, "success");
+  } catch (error) {
+    setWriteStatus(toMessage(error), "error");
+  }
+}
+
+async function handleGovernanceQueue(proposalId) {
+  try {
+    const config = requireConfig();
+    const rpcChainId = requireRpcChainId();
+
+    setWriteStatus(`Queueing proposal #${proposalId} through the timelock.`, "loading");
+    await ensureWalletOnChain(rpcChainId, config.rpcUrl);
+
+    const txHash = await queueGovernanceProposal({
+      governorAddress: config.addresses.governanceGovernor,
+      proposalId,
+    });
+
+    setWriteStatus(`Queue transaction submitted: ${txHash}`, "loading");
+    await waitForTransactionReceipt(txHash);
+    await refresh();
+    setWriteStatus(`Proposal #${proposalId} is now queued in the timelock.`, "success");
+  } catch (error) {
+    setWriteStatus(toMessage(error), "error");
+  }
+}
+
+async function handleGovernanceExecute(proposalId) {
+  try {
+    const config = requireConfig();
+    const rpcChainId = requireRpcChainId();
+
+    setWriteStatus(`Executing queued proposal #${proposalId}.`, "loading");
+    await ensureWalletOnChain(rpcChainId, config.rpcUrl);
+
+    const txHash = await executeGovernanceProposal({
+      governorAddress: config.addresses.governanceGovernor,
+      proposalId,
+    });
+
+    setWriteStatus(`Execution transaction submitted: ${txHash}`, "loading");
+    await waitForTransactionReceipt(txHash);
+    await refresh();
+    setWriteStatus(`Proposal #${proposalId} executed.`, "success");
+  } catch (error) {
+    setWriteStatus(toMessage(error), "error");
+  }
+}
+
 function renderTimelock(timelock) {
   timelockPanel.innerHTML = `
     <div class="panel-grid">
@@ -689,7 +1203,7 @@ function renderHistory(history) {
               ${escapeHtml(historyCategoryLabel(entry.category))}
             </span>
             <span class="history-meta">
-              ${escapeHtml(formatHistoryMoment(entry.timestamp))} · block ${entry.blockNumber}
+              ${escapeHtml(formatHistoryMoment(entry.timestamp))} - block ${entry.blockNumber}
             </span>
           </div>
           <strong class="history-title">${escapeHtml(entry.title)}</strong>
@@ -710,7 +1224,7 @@ function renderNotes(config, state) {
       <li>Tracked buckets and distributions come from the configured ids because the current contracts do not enumerate them on-chain yet.</li>
       <li>The built-in defaults match a fresh local run of <code>npm run seed:demo:ui</code> against a new <code>hardhat node</code> instance.</li>
       <li>Native asset reads use ${escapeHtml(getNativeAssetAddress())} as the configured ETH sentinel address.</li>
-      <li>The dashboard can now fund treasury custody and claim a tracked funded distribution, but governance-owned treasury and distributor policy actions remain read-only here.</li>
+      <li>The dashboard can now fund treasury custody, claim one tracked distribution, and submit narrow single-action governance proposals when the connected wallet has enough delegated votes.</li>
       <li>The activity feed is built from recent direct contract logs over the configured address set, without a separate indexing backend.</li>
       <li>There is no dedicated bucket creation event today, so budget allocation is the first bucket lifecycle step visible in the feed.</li>
       <li>Current dashboard chain: ${escapeHtml(chainLabel(state.rpcChainId))}</li>
@@ -744,7 +1258,56 @@ function renderWalletPanel() {
   switchWalletNetworkButton.disabled = !walletState.available || rpcChainId === null;
 }
 
+function renderTreasuryActionForm(state) {
+  const buckets = latestConfig?.trackedBuckets ?? [];
+  const previousSelection = treasuryGovernanceForm.bucketId.value;
+
+  treasuryGovernanceForm.bucketId.innerHTML = buckets.length === 0
+    ? '<option value="">No tracked buckets configured</option>'
+    : buckets.map((bucket) => `
+      <option value="${escapeHtml(bucket.id)}">${escapeHtml(bucket.label)}</option>
+    `).join("");
+
+  treasuryGovernanceForm.bucketId.value = buckets.some((bucket) => bucket.id === previousSelection)
+    ? previousSelection
+    : buckets[0]?.id ?? "";
+
+  const selectedAction = treasuryGovernanceForm.actionKey.value;
+  treasuryGovernanceForm.recipient.disabled = selectedAction !== "spend";
+  if (selectedAction !== "spend") {
+    treasuryGovernanceForm.recipient.value = "";
+  }
+
+  if (state === null) {
+    treasuryActionPreview.innerHTML = "Refresh the dashboard to prepare treasury actions.";
+    treasuryGovernanceButton.disabled = true;
+    treasuryGovernanceButton.textContent = "Submit treasury proposal";
+    return;
+  }
+
+  const proposalPermission = describeTreasuryProposalPermission(state);
+
+  try {
+    const draft = buildTreasuryActionDraft(state);
+    treasuryActionPreview.innerHTML = `
+      <strong>${escapeHtml(draft.title)}</strong>
+      <span>${escapeHtml(draft.preview)}</span>
+      <span>${escapeHtml(proposalPermission.detail)}</span>
+    `;
+    treasuryGovernanceButton.disabled = !proposalPermission.canSubmit;
+    treasuryGovernanceButton.textContent = proposalPermission.canSubmit
+      ? "Submit treasury proposal"
+      : "Proposal unavailable";
+  } catch (error) {
+    treasuryActionPreview.innerHTML = escapeHtml(toMessage(error));
+    treasuryGovernanceButton.disabled = true;
+    treasuryGovernanceButton.textContent = "Proposal unavailable";
+  }
+}
+
 function hydrateClaimSelector(config, state) {
+  const previousSelection = claimDistributionSelect.value;
+
   claimDistributionSelect.innerHTML = config.trackedDistributions.map((distribution) => {
     const liveDistribution = state.distributor.distributions.find(
       (item) => item.id === distribution.id,
@@ -759,6 +1322,13 @@ function hydrateClaimSelector(config, state) {
       </option>
     `;
   }).join("");
+
+  const hasPreviousSelection = config.trackedDistributions.some(
+    (distribution) => distribution.id === previousSelection,
+  );
+  claimDistributionSelect.value = hasPreviousSelection
+    ? previousSelection
+    : config.trackedDistributions[0]?.id ?? "";
 }
 
 function renderClaimPreview() {
@@ -769,24 +1339,58 @@ function renderClaimPreview() {
   if (distribution === undefined || distribution.status !== "loaded") {
     claimPreview.innerHTML = "Select a tracked distribution to preview its claim state.";
     claimDistributionButton.disabled = true;
+    claimDistributionButton.textContent = "Claim remaining amount";
     return;
   }
 
   const remaining = distribution.fundedAmount - distribution.claimedAmount;
-  const canClaim = walletState.account !== null && distribution.stateCode === 1 && remaining > 0n;
+  const claimView = describeDistributionClaimState(distribution);
+  const canClaim = claimView.canClaim;
 
   claimPreview.innerHTML = `
     <strong>${escapeHtml(distribution.label)}</strong>
+    <span>Asset: ${escapeHtml(distributionAssetLabel(distribution.asset))}</span>
     <span>Remaining claimable amount: ${formatEth(remaining)}</span>
     <span>Status: ${distributionStatus(distribution.stateCode)}</span>
+    <span>${escapeHtml(claimView.detail)}</span>
   `;
 
-  const walletReady = walletState.available &&
-    walletState.account !== null &&
-    latestState?.rpcChainId !== undefined &&
-    normalizeChainId(latestState.rpcChainId) === normalizeChainId(walletState.chainId);
+  claimDistributionButton.disabled = !canClaim;
+  claimDistributionButton.textContent = canClaim
+    ? "Claim full remaining amount"
+    : "Claim unavailable";
+}
 
-  claimDistributionButton.disabled = !(walletReady && canClaim);
+function buildTreasuryActionDraft(state) {
+  const bucketId = treasuryGovernanceForm.bucketId.value;
+  const amountWei = parseEthAmount(treasuryGovernanceForm.amountEth.value);
+
+  if (amountWei <= 0n) {
+    throw new Error("Treasury action amount must be greater than zero.");
+  }
+
+  const bucket = latestConfig?.trackedBuckets.find((item) => item.id === bucketId);
+  if (bucket === undefined) {
+    throw new Error("Choose a tracked bucket before preparing a treasury action.");
+  }
+
+  if (treasuryGovernanceForm.actionKey.value === "allocate") {
+    return {
+      title: "Allocate budget to bucket",
+      data: encodeTreasuryAllocateBudget({ bucketId, amountWei }),
+      description: `Allocate ${formatEth(amountWei)} to ${bucket.label}`,
+      preview: `This governance proposal will allocate ${formatEth(amountWei)} of operating capital to ${bucket.label}. In this MVP, the first allocation effectively creates the bucket.`,
+    };
+  }
+
+  const recipient = requireAddress(treasuryGovernanceForm.recipient.value, "Spend recipient");
+
+  return {
+    title: "Spend from bucket",
+    data: encodeTreasurySpend({ bucketId, recipient, amountWei }),
+    description: `Spend ${formatEth(amountWei)} from ${bucket.label} to ${shortenAddress(recipient)}`,
+    preview: `This governance proposal will spend ${formatEth(amountWei)} from ${bucket.label} to ${recipient}. The treasury only transfers funds after the proposal is approved and executed.`,
+  };
 }
 
 function clearPanels() {
@@ -795,6 +1399,7 @@ function clearPanels() {
   bucketsPanel.innerHTML = "";
   distributorPanel.innerHTML = "";
   rolesPanel.innerHTML = "";
+  governancePanel.innerHTML = "";
   timelockPanel.innerHTML = "";
   historyPanel.innerHTML = "";
   notePanel.innerHTML = "";
@@ -1032,6 +1637,73 @@ function distributionStatus(code) {
   return `Unknown (${code})`;
 }
 
+function distributionAssetLabel(asset) {
+  return lower(asset) === lower(getNativeAssetAddress())
+    ? "ETH"
+    : shortenAddress(asset);
+}
+
+function describeTreasuryProposalPermission(state) {
+  if (!walletState.available) {
+    return {
+      canSubmit: false,
+      detail: "Open the dashboard in a browser with an injected wallet to prepare treasury proposals.",
+    };
+  }
+
+  if (walletState.account === null) {
+    return {
+      canSubmit: false,
+      detail: "Connect a wallet before creating a treasury proposal.",
+    };
+  }
+
+  if (!walletMatchesDashboardChain()) {
+    return {
+      canSubmit: false,
+      detail: "Switch the wallet to the same chain as the dashboard before creating a treasury proposal.",
+    };
+  }
+
+  if (latestWalletVotes < state.governance.proposalThreshold) {
+    return {
+      canSubmit: false,
+      detail: "This wallet does not appear to meet the current governor proposal threshold.",
+    };
+  }
+
+  return {
+    canSubmit: true,
+    detail: `This wallet appears able to create treasury proposals through the governor. Treasury owner is currently ${shortenAddress(state.treasury.owner)}.`,
+  };
+}
+
+function proposalStateLabel(code) {
+  if (code === 0) {
+    return "Pending";
+  }
+  if (code === 1) {
+    return "Active";
+  }
+  if (code === 2) {
+    return "Defeated";
+  }
+  if (code === 3) {
+    return "Succeeded";
+  }
+  if (code === 4) {
+    return "Queued";
+  }
+  if (code === 5) {
+    return "Executed";
+  }
+  if (code === 6) {
+    return "Canceled";
+  }
+
+  return `Unknown (${code})`;
+}
+
 function formatEth(value) {
   const whole = value / 10n ** 18n;
   const fraction = (value % 10n ** 18n).toString().padStart(18, "0");
@@ -1055,6 +1727,18 @@ function formatSeconds(value) {
 
 function formatTokenCount(baseUnitValue) {
   return formatEth(BigInt(baseUnitValue)).replace(" ETH", "");
+}
+
+async function refreshWalletVotes(config) {
+  if (config === null || walletState.account === null) {
+    return 0n;
+  }
+
+  try {
+    return await readTokenVotes(config.rpcUrl, config.addresses.governanceToken, walletState.account);
+  } catch {
+    return 0n;
+  }
 }
 
 function deriveRoleView(state) {
@@ -1219,6 +1903,70 @@ function hasClaimableDistribution() {
   }) ?? false;
 }
 
+function describeDistributionClaimState(distribution) {
+  if (distribution.status !== "loaded") {
+    return {
+      tone: "warning",
+      canClaim: false,
+      detail: "This tracked event could not be loaded from the current chain state.",
+    };
+  }
+
+  const remaining = distribution.fundedAmount - distribution.claimedAmount;
+
+  if (distribution.stateCode !== 1) {
+    return {
+      tone: "warning",
+      canClaim: false,
+      detail: "This event is not currently active for claims.",
+    };
+  }
+
+  if (remaining <= 0n) {
+    return {
+      tone: "warning",
+      canClaim: false,
+      detail: "This event has already been fully claimed.",
+    };
+  }
+
+  if (!walletState.available) {
+    return {
+      tone: "warning",
+      canClaim: false,
+      detail: "Open the dashboard in a browser with an injected wallet to claim from this event.",
+    };
+  }
+
+  if (walletState.account === null) {
+    return {
+      tone: "warning",
+      canClaim: false,
+      detail: "Connect a wallet to self-claim the remaining funded amount.",
+    };
+  }
+
+  if (!walletMatchesDashboardChain()) {
+    return {
+      tone: "warning",
+      canClaim: false,
+      detail: "Switch the wallet to the same chain as the dashboard before claiming.",
+    };
+  }
+
+  return {
+    tone: "success",
+    canClaim: true,
+    detail: "This wallet can submit one self-claim for the full remaining funded amount.",
+  };
+}
+
+function walletMatchesDashboardChain() {
+  return latestState?.rpcChainId !== undefined &&
+    walletState.account !== null &&
+    normalizeChainId(latestState.rpcChainId) === normalizeChainId(walletState.chainId);
+}
+
 function requireState() {
   if (latestState === null) {
     throw new Error("Refresh the dashboard state before sending an action.");
@@ -1243,6 +1991,25 @@ function requireRpcChainId() {
   }
 
   return state.rpcChainId;
+}
+
+function proposalTargetLabel(target, state) {
+  const normalized = lower(target);
+
+  if (normalized === lower(state.addresses.treasury)) {
+    return "Treasury";
+  }
+  if (normalized === lower(state.addresses.distributor)) {
+    return "Distributor";
+  }
+  if (normalized === lower(state.addresses.governanceTimelock)) {
+    return "Timelock";
+  }
+  if (normalized === lower(state.addresses.governanceGovernor)) {
+    return "Governor";
+  }
+
+  return `Target ${shortenAddress(target)}`;
 }
 
 async function handleCopyLaunchCommand() {
@@ -1346,6 +2113,16 @@ function requirePositiveNumber(value, label) {
 
   if (!/^\d+(\.\d+)?$/.test(normalized) || Number(normalized) <= 0) {
     throw new Error(`${label} must be greater than zero.`);
+  }
+
+  return normalized;
+}
+
+function requireAddress(value, label) {
+  const normalized = value.trim();
+
+  if (!/^0x[a-fA-F0-9]{40}$/.test(normalized)) {
+    throw new Error(`${label} must be a valid 20-byte hex address.`);
   }
 
   return normalized;

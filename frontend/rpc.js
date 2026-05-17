@@ -1,5 +1,6 @@
 const SELECTORS = {
   owner: "0x8da5cb5b",
+  getVotes: "0x9ab24eb0",
   totalBalance: "0x6eacd398",
   classifiedBalance: "0xc11b61c4",
   availableOperatingBalance: "0x3d4afd33",
@@ -12,6 +13,15 @@ const SELECTORS = {
   proposer: "0xa8e4fb90",
   executor: "0xc34c08e5",
   minDelay: "0xc63c4e9b",
+  proposalCount: "0xda35c664",
+  proposalThreshold: "0xb58131b0",
+  votingDelay: "0x3932abb1",
+  votingPeriod: "0x02a251a3",
+  quorumNumeratorBps: "0xbcca1b18",
+  governorState: "0x3e4f49e6",
+  proposalVotes: "0x544ffc9c",
+  proposalSnapshot: "0x2d63f693",
+  proposalDeadline: "0xc01f9e37",
 };
 
 const EVENT_TOPICS = {
@@ -59,11 +69,42 @@ export async function loadDashboardState(config) {
 
 async function loadGovernanceState(config) {
   const { rpcUrl, addresses } = config;
+  const proposalCount = await callUint(rpcUrl, addresses.governanceGovernor, SELECTORS.proposalCount);
+  const proposalThreshold = await callUint(
+    rpcUrl,
+    addresses.governanceGovernor,
+    SELECTORS.proposalThreshold,
+  );
+  const votingDelay = await callUint(rpcUrl, addresses.governanceGovernor, SELECTORS.votingDelay);
+  const votingPeriod = await callUint(rpcUrl, addresses.governanceGovernor, SELECTORS.votingPeriod);
+  const quorumNumeratorBps = await callUint(
+    rpcUrl,
+    addresses.governanceGovernor,
+    SELECTORS.quorumNumeratorBps,
+  );
+  const createdProposalLogs = await getLogs(rpcUrl, {
+    address: addresses.governanceGovernor,
+    fromBlock: "0x0",
+    toBlock: "latest",
+    topics: [[EVENT_TOPICS.governance.proposalCreated]],
+  });
+  const createdProposals = await Promise.all(
+    createdProposalLogs.map((log) => decodeProposalCreatedLog(log, rpcUrl, addresses.governanceGovernor)),
+  );
+
+  createdProposals.sort((left, right) => right.proposalId - left.proposalId);
 
   return {
     tokenOwner: await callAddress(rpcUrl, addresses.governanceToken, SELECTORS.owner),
+    tokenVotesDeployerReadable: true,
     governorAddress: addresses.governanceGovernor,
     timelockAddress: addresses.governanceTimelock,
+    proposalCount,
+    proposalThreshold,
+    votingDelay,
+    votingPeriod,
+    quorumNumeratorBps,
+    proposals: createdProposals,
   };
 }
 
@@ -479,6 +520,36 @@ function decodeHistoryLog(log, bucketLabels, distributionLabels) {
   return null;
 }
 
+async function decodeProposalCreatedLog(log, rpcUrl, governorAddress) {
+  const proposalId = Number(decodeTopicUint(log.topics[1]));
+  const proposer = decodeTopicAddress(log.topics[2]);
+  const target = decodeTopicAddress(log.topics[3]);
+  const value = decodeUint(log.data, 0);
+  const snapshot = decodeUint(log.data, 1);
+  const deadline = decodeUint(log.data, 2);
+  const description = decodeDynamicString(log.data, 3);
+  const [stateCode, voteData] = await Promise.all([
+    callUint(rpcUrl, governorAddress, SELECTORS.governorState + encodeUint(proposalId)),
+    callRaw(rpcUrl, governorAddress, SELECTORS.proposalVotes + encodeUint(proposalId)),
+  ]);
+
+  return {
+    proposalId,
+    proposer,
+    target,
+    value,
+    snapshot,
+    deadline,
+    description,
+    stateCode: Number(stateCode),
+    againstVotes: decodeUint(voteData, 0),
+    forVotes: decodeUint(voteData, 1),
+    abstainVotes: decodeUint(voteData, 2),
+    transactionHash: log.transactionHash,
+    blockNumber: Number(BigInt(log.blockNumber)),
+  };
+}
+
 function buildHistoryEntry(entry) {
   return {
     timestamp: null,
@@ -548,6 +619,14 @@ export async function rpcRequest(rpcUrl, method, params = []) {
   }
 
   return payload.result;
+}
+
+export async function readTokenVotes(rpcUrl, tokenAddress, account) {
+  if (account === null || account === undefined) {
+    return 0n;
+  }
+
+  return callUint(rpcUrl, tokenAddress, SELECTORS.getVotes + encodeAddress(account));
 }
 
 function decodeUint(data, index) {
