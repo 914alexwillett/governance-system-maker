@@ -19,6 +19,11 @@ import {GovernanceTimelock} from "./GovernanceTimelock.sol";
 import {IGovernanceToken} from "../interfaces/IGovernanceToken.sol";
 
 contract GovernanceGovernor {
+  uint256 private constant _QUORUM_DENOMINATOR_BPS = 10_000;
+  uint8 private constant _VOTE_AGAINST = 0;
+  uint8 private constant _VOTE_FOR = 1;
+  uint8 private constant _VOTE_ABSTAIN = 2;
+
   enum ProposalState {
     Pending,
     Active,
@@ -101,7 +106,7 @@ contract GovernanceGovernor {
     if (votingPeriod_ == 0) {
       revert Governance__InvalidVotingPeriod(votingPeriod_);
     }
-    if (quorumNumeratorBps_ > 10_000) {
+    if (quorumNumeratorBps_ > _QUORUM_DENOMINATOR_BPS) {
       revert Governance__InvalidQuorumNumerator(quorumNumeratorBps_);
     }
 
@@ -170,7 +175,7 @@ contract GovernanceGovernor {
     if (state(proposalId) != ProposalState.Active) {
       revert Governance__ProposalNotActive(proposalId);
     }
-    if (support > 2) {
+    if (support > _VOTE_ABSTAIN) {
       revert Governance__InvalidVoteType(support);
     }
 
@@ -185,9 +190,9 @@ contract GovernanceGovernor {
     receipt.support = support;
     receipt.votes = weight;
 
-    if (support == 0) {
+    if (support == _VOTE_AGAINST) {
       proposal.againstVotes += weight;
-    } else if (support == 1) {
+    } else if (support == _VOTE_FOR) {
       proposal.forVotes += weight;
     } else {
       proposal.abstainVotes += weight;
@@ -204,7 +209,7 @@ contract GovernanceGovernor {
     ProposalCore storage proposal = _proposals[proposalId];
     bytes memory data = _proposalCalldatas[proposalId];
     bytes32 salt = _timelockSalt(proposalId);
-    operationId = timelock.hashOperation(proposal.target, proposal.value, data, salt);
+    operationId = _operationId(proposal.target, proposal.value, data, salt);
 
     proposal.queued = true;
     timelock.schedule(proposal.target, proposal.value, data, salt);
@@ -220,7 +225,7 @@ contract GovernanceGovernor {
     ProposalCore storage proposal = _proposals[proposalId];
     bytes memory data = _proposalCalldatas[proposalId];
     bytes32 salt = _timelockSalt(proposalId);
-    bytes32 operationId = timelock.hashOperation(proposal.target, proposal.value, data, salt);
+    bytes32 operationId = _operationId(proposal.target, proposal.value, data, salt);
 
     proposal.executed = true;
     result = timelock.execute(
@@ -252,7 +257,7 @@ contract GovernanceGovernor {
     proposal.canceled = true;
 
     if (proposal.queued) {
-      bytes32 operationId = timelock.hashOperation(
+      bytes32 operationId = _operationId(
         proposal.target,
         proposal.value,
         _proposalCalldatas[proposalId],
@@ -295,7 +300,9 @@ contract GovernanceGovernor {
   }
 
   function quorum(uint256 timepoint) public view returns (uint256) {
-    return (token.getPastTotalSupply(timepoint) * quorumNumeratorBps) / 10_000;
+    return
+      (token.getPastTotalSupply(timepoint) * quorumNumeratorBps) /
+      _QUORUM_DENOMINATOR_BPS;
   }
 
   function clock() public view returns (uint48) {
@@ -356,6 +363,15 @@ contract GovernanceGovernor {
 
   function _timelockSalt(uint256 proposalId) internal pure returns (bytes32) {
     return bytes32(proposalId);
+  }
+
+  function _operationId(
+    address target,
+    uint256 value,
+    bytes memory data,
+    bytes32 salt
+  ) internal view returns (bytes32) {
+    return timelock.hashOperation(target, value, data, salt);
   }
 
   function _requireProposal(

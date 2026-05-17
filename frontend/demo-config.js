@@ -19,4 +19,8 @@ export const demoDefaults = {
       label: "Demo community grant",
     },
   ],
+  history: {
+    lookbackBlocks: 5000,
+    maxItems: 24,
+  },
 };

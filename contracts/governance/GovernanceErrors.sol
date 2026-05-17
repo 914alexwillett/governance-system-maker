@@ -5,7 +5,6 @@ error Governance__Unauthorized(address caller);
 error Governance__InvalidOwner(address owner);
 error Governance__InvalidTarget(address target);
 error Governance__InvalidAmount();
-error Governance__InvalidDelay(uint256 delay);
 error Governance__InvalidOperation(bytes32 operationId);
 error Governance__OperationAlreadyScheduled(bytes32 operationId);
 error Governance__OperationNotReady(bytes32 operationId, uint256 executeAfter, uint256 currentTime);

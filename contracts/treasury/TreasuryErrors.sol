@@ -2,7 +2,6 @@
 pragma solidity ^0.8.28;
 
 error Treasury__InvalidOwner(address owner);
-error Treasury__InvalidAsset(address asset);
 error Treasury__InvalidBucketId(bytes32 bucketId);
 error Treasury__InvalidRecipient(address recipient);
 error Treasury__InvalidAmount();

@@ -2,7 +2,6 @@
 pragma solidity ^0.8.28;
 
 import {
-  Governance__InvalidDelay,
   Governance__InvalidOperation,
   Governance__InvalidOwner,
   Governance__InvalidTarget,
@@ -71,28 +70,19 @@ contract GovernanceTimelock {
   }
 
   function updateAdmin(address newAdmin) external onlyAdmin {
-    if (newAdmin == address(0)) {
-      revert Governance__InvalidOwner(newAdmin);
-    }
-
+    _validateOwnerAddress(newAdmin);
     emit AdminUpdated(admin, newAdmin);
     admin = newAdmin;
   }
 
   function updateProposer(address newProposer) external onlyAdmin {
-    if (newProposer == address(0)) {
-      revert Governance__InvalidOwner(newProposer);
-    }
-
+    _validateOwnerAddress(newProposer);
     emit ProposerUpdated(proposer, newProposer);
     proposer = newProposer;
   }
 
   function updateExecutor(address newExecutor) external onlyAdmin {
-    if (newExecutor == address(0)) {
-      revert Governance__InvalidOwner(newExecutor);
-    }
-
+    _validateOwnerAddress(newExecutor);
     emit ExecutorUpdated(executor, newExecutor);
     executor = newExecutor;
   }
@@ -112,9 +102,7 @@ contract GovernanceTimelock {
     bytes calldata data,
     bytes32 salt
   ) external onlyProposer returns (bytes32 operationId) {
-    if (target == address(0)) {
-      revert Governance__InvalidTarget(target);
-    }
+    _validateTarget(target);
 
     operationId = hashOperation(target, value, data, salt);
     Operation storage operation = _operations[operationId];
@@ -136,10 +124,7 @@ contract GovernanceTimelock {
   }
 
   function cancel(bytes32 operationId) external onlyProposer {
-    Operation storage operation = _operations[operationId];
-    if (operation.executeAfter == 0 || operation.executed) {
-      revert Governance__OperationNotScheduled(operationId);
-    }
+    _requireScheduledOperation(operationId);
 
     delete _operations[operationId];
     emit OperationCancelled(operationId);
@@ -152,11 +137,7 @@ contract GovernanceTimelock {
     bytes32 salt
   ) external payable onlyExecutor returns (bytes memory result) {
     bytes32 operationId = hashOperation(target, value, data, salt);
-    Operation storage operation = _operations[operationId];
-
-    if (operation.executeAfter == 0 || operation.executed) {
-      revert Governance__OperationNotScheduled(operationId);
-    }
+    Operation storage operation = _requireScheduledOperation(operationId);
     if (
       operation.target != target ||
       operation.value != value ||
@@ -207,6 +188,27 @@ contract GovernanceTimelock {
   function isOperationPending(bytes32 operationId) external view returns (bool) {
     Operation storage operation = _operations[operationId];
     return operation.executeAfter != 0 && !operation.executed;
+  }
+
+  function _validateOwnerAddress(address candidate) internal pure {
+    if (candidate == address(0)) {
+      revert Governance__InvalidOwner(candidate);
+    }
+  }
+
+  function _validateTarget(address target) internal pure {
+    if (target == address(0)) {
+      revert Governance__InvalidTarget(target);
+    }
+  }
+
+  function _requireScheduledOperation(
+    bytes32 operationId
+  ) internal view returns (Operation storage operation) {
+    operation = _operations[operationId];
+    if (operation.executeAfter == 0 || operation.executed) {
+      revert Governance__OperationNotScheduled(operationId);
+    }
   }
 
   modifier onlyAdmin() {

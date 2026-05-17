@@ -5,6 +5,8 @@ import {Governance__InvalidAmount, Governance__InvalidOwner, Governance__Unautho
 import {IGovernanceToken} from "../interfaces/IGovernanceToken.sol";
 
 contract GovernanceToken is IGovernanceToken {
+  string private constant _CLOCK_MODE_DESCRIPTION = "mode=blocknumber&from=default";
+
   struct Checkpoint {
     uint48 fromBlock;
     uint208 votes;
@@ -83,12 +85,7 @@ contract GovernanceToken is IGovernanceToken {
   }
 
   function transferOwnership(address newOwner) external onlyOwner {
-    if (newOwner == address(0)) {
-      revert Governance__InvalidOwner(newOwner);
-    }
-
-    emit OwnershipTransferred(owner, newOwner);
-    owner = newOwner;
+    _setOwner(newOwner);
   }
 
   function delegate(address delegatee) external {
@@ -116,7 +113,7 @@ contract GovernanceToken is IGovernanceToken {
   }
 
   function CLOCK_MODE() external pure returns (string memory) {
-    return "mode=blocknumber&from=default";
+    return _CLOCK_MODE_DESCRIPTION;
   }
 
   function _transfer(address from, address to, uint256 amount) internal {
@@ -195,14 +192,14 @@ contract GovernanceToken is IGovernanceToken {
     }
 
     if (from != address(0)) {
-      uint256 oldFromVotes = _checkpointLookup(_delegateCheckpoints[from], clock());
+      uint256 oldFromVotes = _currentVotes(_delegateCheckpoints[from]);
       uint256 newFromVotes = oldFromVotes - amount;
       _writeCheckpoint(_delegateCheckpoints[from], newFromVotes);
       emit DelegateVotesChanged(from, oldFromVotes, newFromVotes);
     }
 
     if (to != address(0)) {
-      uint256 oldToVotes = _checkpointLookup(_delegateCheckpoints[to], clock());
+      uint256 oldToVotes = _currentVotes(_delegateCheckpoints[to]);
       uint256 newToVotes = oldToVotes + amount;
       _writeCheckpoint(_delegateCheckpoints[to], newToVotes);
       emit DelegateVotesChanged(to, oldToVotes, newToVotes);
@@ -252,6 +249,8 @@ contract GovernanceToken is IGovernanceToken {
     return checkpoints[high - 1].votes;
   }
 
+  // Historical lookups deliberately exclude the current block so voting snapshots
+  // cannot read partially-built checkpoint state from the in-flight block.
   function _validateTimepoint(uint256 timepoint) internal view returns (uint48) {
     uint48 currentBlock = clock();
 
@@ -260,6 +259,21 @@ contract GovernanceToken is IGovernanceToken {
     }
 
     return uint48(timepoint);
+  }
+
+  function _setOwner(address newOwner) internal {
+    if (newOwner == address(0)) {
+      revert Governance__InvalidOwner(newOwner);
+    }
+
+    emit OwnershipTransferred(owner, newOwner);
+    owner = newOwner;
+  }
+
+  function _currentVotes(
+    Checkpoint[] storage checkpoints
+  ) internal view returns (uint256) {
+    return _checkpointLookup(checkpoints, clock());
   }
 
   function _safeCastTo208(uint256 value) internal pure returns (uint208) {

@@ -1,4 +1,9 @@
 export interface DeployV3Config {
+  network: {
+    label: string;
+    explorerBaseUrl?: string;
+    requiredEnvVars?: string[];
+  };
   token: {
     name: string;
     symbol: string;
@@ -19,6 +24,9 @@ export interface DeployV3Config {
 }
 
 const sharedConfig: DeployV3Config = {
+  network: {
+    label: "Local Hardhat Mainnet",
+  },
   token: {
     name: "Governance Capital Token",
     symbol: "GOVCAP",
@@ -41,8 +49,19 @@ const sharedConfig: DeployV3Config = {
 const networkConfigs: Record<string, DeployV3Config> = {
   default: sharedConfig,
   hardhatMainnet: sharedConfig,
+  localhost: {
+    ...sharedConfig,
+    network: {
+      label: "Localhost JSON-RPC",
+    },
+  },
   sepolia: {
     ...sharedConfig,
+    network: {
+      label: "Ethereum Sepolia",
+      explorerBaseUrl: "https://sepolia.etherscan.io",
+      requiredEnvVars: ["SEPOLIA_RPC_URL", "SEPOLIA_PRIVATE_KEY"],
+    },
     timelock: {
       ...sharedConfig.timelock,
       minDelay: 86_400n,

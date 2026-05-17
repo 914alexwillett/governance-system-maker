@@ -31,7 +31,7 @@ The current repo demonstrates a simple but coherent capital flow:
 - `scripts/seed-v3-demo.ts`
   - local demo seed flow that leaves the system in a useful example state
 - `frontend/`
-  - minimal read-only local dashboard for demo visibility
+  - minimal local dashboard with a launch planner, wallet connection, and a couple of safe MVP actions
 - `test/nodejs/*`
   - focused Node tests for module behavior and one end-to-end scenario
 
@@ -60,11 +60,23 @@ npm run deploy:local
 npm run seed:demo
 ```
 
+For a real testnet deployment:
+
+```bash
+npx hardhat run scripts/deploy-v3.ts --build-profile production --network sepolia
+```
+
 For the local dashboard demo:
 
 ```bash
 npm run chain:dev
 npm run seed:demo:ui
+npm run ui:dev
+```
+
+For the local launch-planner UX:
+
+```bash
 npm run ui:dev
 ```
 
@@ -84,6 +96,7 @@ npm run deploy:local
 npm run seed:demo
 npm run seed:demo:ui
 npm run ui:dev
+npx hardhat run scripts/deploy-v3.ts --build-profile production --network sepolia
 ```
 
 Command notes:
@@ -97,12 +110,14 @@ Command notes:
   - run the Node suite against the production build profile
 - `npm run deploy:local`
   - deploy the full MVP stack to the local `hardhatMainnet` simulation
+- `npx hardhat run scripts/deploy-v3.ts --build-profile production --network sepolia`
+  - deploy the full MVP stack to Ethereum Sepolia using explicit config variables
 - `npm run seed:demo`
   - create a local seeded demo state after deployment-style setup
 - `npm run seed:demo:ui`
   - seed the current MVP onto a persistent local JSON-RPC chain for the demo dashboard
 - `npm run ui:dev`
-  - serve the minimal local dashboard at `http://127.0.0.1:4173`
+  - serve the launch planner and demo dashboard at `http://127.0.0.1:4173`
 
 ## Local Demo Flow
 
@@ -122,20 +137,125 @@ Important local note:
 - `scripts/seed-v3-demo.ts` deploys a fresh local stack when no reusable addresses are configured
 - on a persistent network, the seed script can load addresses from environment variables instead
 
+## Testnet Deployment
+
+The repo now supports a structured Sepolia deployment path.
+
+Required config variables:
+
+```text
+SEPOLIA_RPC_URL
+SEPOLIA_PRIVATE_KEY
+```
+
+What each value is for:
+- `SEPOLIA_RPC_URL`
+  - your Ethereum Sepolia RPC endpoint
+- `SEPOLIA_PRIVATE_KEY`
+  - the bootstrap deployer private key used to deploy and perform the initial timelock handoff
+
+PowerShell example:
+
+```powershell
+$env:SEPOLIA_RPC_URL="https://your-sepolia-rpc-url"
+$env:SEPOLIA_PRIVATE_KEY="0xyourprivatekey"
+```
+
+Deploy command:
+
+```bash
+npx hardhat run scripts/deploy-v3.ts --build-profile production --network sepolia
+```
+
+What the Sepolia deployment does:
+
+1. deploy `GovernanceToken`
+2. deploy `Treasury`
+3. deploy `Distributor`
+4. deploy `GovernanceTimelock`
+5. deploy `GovernanceGovernor`
+6. optionally self-delegate the initial governance token voting power to the bootstrap deployer
+7. update timelock proposer and executor to the governor
+8. transfer token, treasury, and distributor ownership to the timelock
+9. transfer timelock admin to the timelock itself
+
+What the deployment output includes:
+- deployed contract addresses
+- network name and chain id
+- the final governance handoff state
+- config values used for the deployment
+- explorer links when the network config provides an explorer base URL
+
+Current testnet assumptions:
+- Sepolia uses a longer timelock delay than local development
+- Sepolia uses a longer voting period than local development
+- the current deployment flow is bootstrap-driven from one deployer account before timelock handoff
+- contract verification is not wired into this MVP deploy script yet
+
 ## Demo Dashboard
 
-The repo now includes a minimal local dashboard under `frontend/`.
+The repo now includes a minimal local launch planner and dashboard under `frontend/`.
+
+## Launch Planner
+
+The first-pass deployer UX is intentionally honest about the current architecture.
+
+What it does:
+- collects a small launch profile such as network, token identity, initial supply, and timelock delay
+- shows the exact module stack that the MVP deployment script will deploy
+- shows the ownership and governance handoff sequence
+- generates the real deploy command and config preview that map to `scripts/deploy-v3.ts`
+
+What it does not do yet:
+- deploy contracts directly from the browser
+- replace the current off-chain Hardhat deployment model
+- create an on-chain factory or one-click launch contract
+
+Why this shape:
+- the current MVP already has a clean script-based deployment flow
+- this launch planner is a product-facing review and preparation layer on top of that flow
+- it makes the system feel closer to a real “launch a governance capital system” experience without misrepresenting how deployment actually works today
+
+To use it locally:
+
+1. Start the UI server:
+
+```bash
+npm run ui:dev
+```
+
+2. Open:
+
+```text
+http://127.0.0.1:4173
+```
+
+3. Use the `Launch System` section to:
+- choose a local or Sepolia launch profile
+- set the small set of launch parameters exposed in the MVP planner
+- review the deploy command, env requirements, config preview, and handoff steps
+
+The planner maps directly to:
+- [scripts/deploy-v3.ts](/C:/Users/914al/governance-system-maker/scripts/deploy-v3.ts)
+- [scripts/config/deploy-v3.ts](/C:/Users/914al/governance-system-maker/scripts/config/deploy-v3.ts)
+- [docs/deployer-flow.md](/C:/Users/914al/governance-system-maker/docs/deployer-flow.md)
 
 What it does today:
+- includes a guided demo walkthrough for first-time users
 - displays deployed contract addresses
 - reads treasury balances and classifications
 - reads tracked budget bucket state
 - reads tracked distributor event state
+- shows a role and control view for ownership and governance relationships
 - reads timelock ownership wiring
+- shows a lightweight recent activity feed from treasury, distributor, and governor logs
+- connects an injected wallet such as MetaMask
+- funds treasury ETH custody directly from the connected wallet
+- claims the remaining amount from one tracked funded distribution
 
 What it intentionally does not do yet:
-- wallet connection
-- write actions
+- direct governance-owned bucket management
+- direct treasury reclassification or distribution funding
 - broad on-chain enumeration of buckets or distributions
 
 The current MVP contracts do not enumerate bucket ids or distribution ids on-chain, so the dashboard reads the tracked ids you configure in the UI. The built-in defaults match a fresh local run of `npm run seed:demo:ui` against a new `hardhat node`.
@@ -165,6 +285,41 @@ npm run ui:dev
 ```text
 http://127.0.0.1:4173
 ```
+
+5. In a browser with an injected wallet:
+- connect the wallet to the dashboard
+- switch the wallet to the same chain as the dashboard RPC if prompted
+- use `Fund Treasury` to send ETH into treasury custody
+- use `Claim Distribution` to claim the remaining amount from the tracked seeded distribution
+
+How a new user should use the guided flow:
+- start with the `Guided Demo` section at the top of the page
+- move step by step through treasury, buckets, distributor, governance control, and the activity feed
+- use each step’s jump button to open the relevant live view in the seeded demo
+- treat the walkthrough as the fastest way to understand the product story before trying wallet actions
+
+Why the write actions are intentionally small:
+- treasury classification, bucket policy, and distributor funding are timelock-owned after bootstrap
+- those actions are meant to flow through governance, so the dashboard keeps them read-only for now
+- treasury funding and self-claim distribution actions are the two meaningful interactions that fit the current MVP ownership model without bypassing governance
+
+What the current activity feed supports:
+- treasury funding, capital classification, budget allocation, budget deallocation, and bucket spending
+- distribution creation, funding, claims, and closure
+- governance proposal creation, vote casting, queueing, and execution
+
+What the current roles view supports:
+- governance token owner
+- treasury owner
+- distributor owner
+- timelock admin, proposer, and executor
+- whether governor/timelock wiring appears aligned
+- whether the system looks fully handed off or still in bootstrap / partial-handoff mode
+
+Current analytics compromise:
+- the feed reads recent direct contract logs from the configured addresses over a recent block window
+- there is no separate indexer or historical warehouse yet
+- there is no dedicated bucket creation event in the current contracts, so allocation is the first visible bucket lifecycle event
 
 ## Repository Map
 
@@ -227,6 +382,7 @@ The most useful repo guidance lives in:
 
 - [docs/README.md](/C:/Users/914al/governance-system-maker/docs/README.md)
 - [docs/developer-workflow.md](/C:/Users/914al/governance-system-maker/docs/developer-workflow.md)
+- [docs/deployer-flow.md](/C:/Users/914al/governance-system-maker/docs/deployer-flow.md)
 
 ## Current Limits
 

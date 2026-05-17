@@ -4,7 +4,6 @@ pragma solidity ^0.8.28;
 error Distributor__InvalidOwner(address owner);
 error Distributor__InvalidDistributionId(bytes32 distributionId);
 error Distributor__DistributionAlreadyExists(bytes32 distributionId);
-error Distributor__InvalidAsset(address asset);
 error Distributor__InvalidRecipient(address recipient);
 error Distributor__InvalidAmount();
 error Distributor__Unauthorized(address caller);

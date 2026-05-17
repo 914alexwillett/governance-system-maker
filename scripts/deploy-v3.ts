@@ -22,8 +22,11 @@ if (deployer.account === undefined) {
 
 const deployerAddress = getAddress(deployer.account.address);
 const config = getDeployV3Config(networkName);
+const chainId = await publicClient.getChainId();
 
 console.log(`Deploying Governance Capital MVP to ${networkName}`);
+console.log(`Network label: ${config.network.label}`);
+console.log(`Chain ID: ${chainId}`);
 console.log(`Bootstrap deployer: ${deployerAddress}`);
 
 const governanceToken = await viem.deployContract(
@@ -110,8 +113,15 @@ const deployedAddresses: DeploymentAddresses = {
 
 const postDeployState = {
   network: networkName,
+  networkLabel: config.network.label,
+  chainId,
   deployer: deployerAddress,
   deployedAddresses,
+  explorer: buildExplorerLinks(
+    config.network.explorerBaseUrl,
+    deployedAddresses,
+    deployerAddress,
+  ),
   governance: {
     tokenOwner: await governanceToken.read.owner(),
     treasuryOwner: await treasury.read.owner(),
@@ -123,6 +133,11 @@ const postDeployState = {
     delegatedVotes: await governanceToken.read.getVotes([deployerAddress]),
   },
   config: {
+    network: {
+      label: config.network.label,
+      requiredEnvVars: config.network.requiredEnvVars ?? [],
+      explorerBaseUrl: config.network.explorerBaseUrl ?? null,
+    },
     token: {
       name: config.token.name,
       symbol: config.token.symbol,
@@ -160,6 +175,17 @@ console.log(`Treasury:            ${deployedAddresses.treasury}`);
 console.log(`Distributor:         ${deployedAddresses.distributor}`);
 console.log(`GovernanceTimelock:  ${deployedAddresses.governanceTimelock}`);
 console.log(`GovernanceGovernor:  ${deployedAddresses.governanceGovernor}`);
+if (postDeployState.explorer !== null) {
+  console.log("");
+  console.log("Explorer Links");
+  console.log("==============");
+  console.log(`Deployer:            ${postDeployState.explorer.deployer}`);
+  console.log(`GovernanceToken:     ${postDeployState.explorer.governanceToken}`);
+  console.log(`Treasury:            ${postDeployState.explorer.treasury}`);
+  console.log(`Distributor:         ${postDeployState.explorer.distributor}`);
+  console.log(`GovernanceTimelock:  ${postDeployState.explorer.governanceTimelock}`);
+  console.log(`GovernanceGovernor:  ${postDeployState.explorer.governanceGovernor}`);
+}
 console.log("");
 console.log("Deployment Output (JSON)");
 console.log(JSON.stringify(postDeployState, bigintReplacer, 2));
@@ -171,4 +197,23 @@ async function waitForTransaction(txHashPromise: Promise<Hex>): Promise<void> {
 
 function bigintReplacer(_key: string, value: unknown): unknown {
   return typeof value === "bigint" ? value.toString() : value;
+}
+
+function buildExplorerLinks(
+  explorerBaseUrl: string | undefined,
+  deployedAddresses: DeploymentAddresses,
+  deployerAddress: Address,
+) {
+  if (explorerBaseUrl === undefined) {
+    return null;
+  }
+
+  return {
+    deployer: `${explorerBaseUrl}/address/${deployerAddress}`,
+    governanceToken: `${explorerBaseUrl}/address/${deployedAddresses.governanceToken}`,
+    treasury: `${explorerBaseUrl}/address/${deployedAddresses.treasury}`,
+    distributor: `${explorerBaseUrl}/address/${deployedAddresses.distributor}`,
+    governanceTimelock: `${explorerBaseUrl}/address/${deployedAddresses.governanceTimelock}`,
+    governanceGovernor: `${explorerBaseUrl}/address/${deployedAddresses.governanceGovernor}`,
+  };
 }

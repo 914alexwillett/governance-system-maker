@@ -27,6 +27,8 @@ interface IERC20Transfer {
 }
 
 contract Treasury is ITreasury {
+  address private constant _NATIVE_ASSET = address(0);
+
   struct BucketState {
     uint256 allocated;
     uint256 spent;
@@ -39,12 +41,7 @@ contract Treasury is ITreasury {
   mapping(address asset => uint256 amount) private _totalBucketCommittedByAsset;
 
   constructor(address initialOwner) {
-    if (initialOwner == address(0)) {
-      revert Treasury__InvalidOwner(initialOwner);
-    }
-
-    owner = initialOwner;
-    emit OwnershipTransferred(address(0), initialOwner);
+    _setOwner(initialOwner);
   }
 
   receive() external payable {
@@ -52,12 +49,7 @@ contract Treasury is ITreasury {
   }
 
   function transferOwnership(address newOwner) external onlyOwner {
-    if (newOwner == address(0)) {
-      revert Treasury__InvalidOwner(newOwner);
-    }
-
-    emit OwnershipTransferred(owner, newOwner);
-    owner = newOwner;
+    _setOwner(newOwner);
   }
 
   function classifyCapital(address asset, CapitalClass classId, uint256 amount) external onlyOwner {
@@ -136,7 +128,7 @@ contract Treasury is ITreasury {
     _validateAmount(allocation.amount);
 
     BucketState storage bucketState = _bucketStates[allocation.bucketId][allocation.asset];
-    uint256 remaining = bucketState.allocated - bucketState.spent;
+    uint256 remaining = _bucketRemaining(bucketState);
     if (remaining < allocation.amount) {
       revert Treasury__InsufficientBucketAllocation(
         allocation.bucketId,
@@ -161,7 +153,7 @@ contract Treasury is ITreasury {
     }
 
     BucketState storage bucketState = _bucketStates[spendRequest.bucketId][spendRequest.asset];
-    uint256 remaining = bucketState.allocated - bucketState.spent;
+    uint256 remaining = _bucketRemaining(bucketState);
     if (remaining < spendRequest.amount) {
       revert Treasury__InsufficientBucketAllocation(
         spendRequest.bucketId,
@@ -222,7 +214,7 @@ contract Treasury is ITreasury {
   }
 
   function totalBalance(address asset) public view returns (uint256) {
-    if (asset == address(0)) {
+    if (_isNativeAsset(asset)) {
       return address(this).balance;
     }
 
@@ -261,8 +253,25 @@ contract Treasury is ITreasury {
     return _classifiedBalances[asset][classId];
   }
 
+  function _setOwner(address newOwner) internal {
+    if (newOwner == address(0)) {
+      revert Treasury__InvalidOwner(newOwner);
+    }
+
+    emit OwnershipTransferred(owner, newOwner);
+    owner = newOwner;
+  }
+
+  function _bucketRemaining(BucketState storage bucketState) internal view returns (uint256) {
+    return bucketState.allocated - bucketState.spent;
+  }
+
+  function _isNativeAsset(address asset) internal pure returns (bool) {
+    return asset == _NATIVE_ASSET;
+  }
+
   function _transferAsset(address asset, address recipient, uint256 amount) internal {
-    if (asset == address(0)) {
+    if (_isNativeAsset(asset)) {
       (bool nativeTransferSucceeded, ) = recipient.call{value: amount}("");
       require(nativeTransferSucceeded, "Treasury: native transfer failed");
       return;

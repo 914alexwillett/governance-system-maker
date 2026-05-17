@@ -27,6 +27,8 @@ interface IERC20Transfer {
 }
 
 contract Distributor is IDistributor {
+  address private constant _NATIVE_ASSET = address(0);
+
   address public owner;
 
   mapping(bytes32 distributionId => DistributionState state) private _distributionStates;
@@ -34,12 +36,7 @@ contract Distributor is IDistributor {
   mapping(address asset => uint256 amount) private _totalOutstandingByAsset;
 
   constructor(address initialOwner) {
-    if (initialOwner == address(0)) {
-      revert Distributor__InvalidOwner(initialOwner);
-    }
-
-    owner = initialOwner;
-    emit OwnershipTransferred(address(0), initialOwner);
+    _setOwner(initialOwner);
   }
 
   receive() external payable {
@@ -47,12 +44,7 @@ contract Distributor is IDistributor {
   }
 
   function transferOwnership(address newOwner) external onlyOwner {
-    if (newOwner == address(0)) {
-      revert Distributor__InvalidOwner(newOwner);
-    }
-
-    emit OwnershipTransferred(owner, newOwner);
-    owner = newOwner;
+    _setOwner(newOwner);
   }
 
   function createDistribution(DistributionConfig calldata config) external onlyOwner {
@@ -92,7 +84,7 @@ contract Distributor is IDistributor {
       );
     }
 
-    if (state.asset == address(0) && msg.value > 0 && msg.value != amount) {
+    if (_isNativeAsset(state.asset) && msg.value > 0 && msg.value != amount) {
       revert Distributor__InvalidAmount();
     }
 
@@ -128,7 +120,7 @@ contract Distributor is IDistributor {
       );
     }
 
-    uint256 available = state.fundedAmount - state.claimedAmount;
+    uint256 available = _claimableAmount(state);
     if (available < request.amount) {
       revert Distributor__ClaimExceedsFundedAmount(
         request.distributionId,
@@ -181,7 +173,7 @@ contract Distributor is IDistributor {
   }
 
   function _totalBalance(address asset) internal view returns (uint256) {
-    if (asset == address(0)) {
+    if (_isNativeAsset(asset)) {
       return address(this).balance;
     }
 
@@ -201,8 +193,27 @@ contract Distributor is IDistributor {
     }
   }
 
+  function _setOwner(address newOwner) internal {
+    if (newOwner == address(0)) {
+      revert Distributor__InvalidOwner(newOwner);
+    }
+
+    emit OwnershipTransferred(owner, newOwner);
+    owner = newOwner;
+  }
+
+  function _claimableAmount(
+    DistributionState storage state
+  ) internal view returns (uint256) {
+    return state.fundedAmount - state.claimedAmount;
+  }
+
+  function _isNativeAsset(address asset) internal pure returns (bool) {
+    return asset == _NATIVE_ASSET;
+  }
+
   function _transferAsset(address asset, address recipient, uint256 amount) internal {
-    if (asset == address(0)) {
+    if (_isNativeAsset(asset)) {
       (bool nativeTransferSucceeded, ) = recipient.call{value: amount}("");
       require(nativeTransferSucceeded, "Distributor: native transfer failed");
       return;
