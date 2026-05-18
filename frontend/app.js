@@ -107,6 +107,7 @@ const copyLaunchConfigButton = document.querySelector("#copy-launch-config");
 const form = document.querySelector("#config-form");
 const statusBanner = document.querySelector("#status-banner");
 const writeStatusBanner = document.querySelector("#write-status-banner");
+const healthPanel = document.querySelector("#health-panel");
 const summaryPanel = document.querySelector("#summary-panel");
 const treasuryPanel = document.querySelector("#treasury-panel");
 const bucketsPanel = document.querySelector("#buckets-panel");
@@ -264,6 +265,7 @@ async function refresh() {
     const state = await loadDashboardState(config);
     latestState = state;
     hydrateClaimSelector(config, state);
+    renderHealth(state);
     renderSummary(config, state);
     renderTreasury(state.treasury);
     renderBuckets(state.treasury.buckets);
@@ -280,6 +282,7 @@ async function refresh() {
   } catch (error) {
     latestState = null;
     clearPanels();
+    renderHealth(null);
     renderWalletPanel();
     renderTreasuryActionForm(null);
     renderGovernance(null);
@@ -596,6 +599,56 @@ function renderSummary(config, state) {
   `;
 }
 
+function renderHealth(state) {
+  if (state === null) {
+    healthPanel.innerHTML = emptyState("Refresh the dashboard to load a compact system health view.");
+    return;
+  }
+
+  const healthView = deriveHealthView(state);
+
+  healthPanel.innerHTML = `
+    <div class="roles-overview">
+      <div class="role-status-card" data-mode="${escapeHtml(healthView.readinessTone)}">
+        <span class="eyebrow">Overall status</span>
+        <strong>${escapeHtml(healthView.readinessLabel)}</strong>
+        <p>${escapeHtml(healthView.readinessDetail)}</p>
+      </div>
+      <div class="role-status-card" data-mode="${escapeHtml(healthView.controlTone)}">
+        <span class="eyebrow">Control posture</span>
+        <strong>${escapeHtml(healthView.controlLabel)}</strong>
+        <p>${escapeHtml(healthView.controlDetail)}</p>
+      </div>
+    </div>
+    <div class="panel-grid compact">
+      ${metricCard("Addresses loaded", `${healthView.addressesLoaded} / ${healthView.addressesExpected}`)}
+      ${metricCard("Treasury custody", formatEth(state.treasury.totalBalance))}
+      ${metricCard("Distributor outstanding", formatEth(state.distributor.totalOutstanding))}
+      ${metricCard("Active distributions", healthView.activeDistributionCount)}
+      ${metricCard("Tracked buckets loaded", `${healthView.loadedBucketCount} / ${healthView.totalBucketCount}`)}
+      ${metricCard("Governance proposals", healthView.proposalCount)}
+    </div>
+    <div class="actions-layout health-layout">
+      <div class="action-card">
+        <h3>Attention flags</h3>
+        ${healthView.warnings.length === 0
+          ? `<p class="action-copy">${escapeHtml(healthView.clearMessage)}</p>`
+          : `
+            <ul class="notes-list">
+              ${healthView.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}
+            </ul>
+          `}
+      </div>
+      <div class="action-card">
+        <h3>How to interpret this</h3>
+        <ul class="notes-list">
+          ${healthView.interpretation.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+        </ul>
+      </div>
+    </div>
+  `;
+}
+
 function renderTreasury(treasury) {
   treasuryPanel.innerHTML = `
     <div class="panel-grid">
@@ -824,6 +877,11 @@ function renderGovernance(state) {
         <strong>${governance.votingDelay.toString()} delay / ${governance.votingPeriod.toString()} period</strong>
         <p>Proposals wait through the voting delay, then remain open for the voting period before queueing and execution.</p>
       </div>
+      <div class="role-status-card" data-mode="success">
+        <span class="eyebrow">Timelock delay</span>
+        <strong>${formatSeconds(governance.timelockMinDelay)}</strong>
+        <p>Succeeded proposals still wait through this timelock delay after queueing before execution becomes ready.</p>
+      </div>
     </div>
     <div class="actions-layout">
       <div class="action-card">
@@ -872,37 +930,44 @@ function renderGovernance(state) {
     </div>
     ${governance.proposals.length === 0 ? emptyState("No proposals have been created on this deployment yet.") : `
       <div class="history-feed">
-        ${governance.proposals.map((proposal) => `
-          <article class="history-item">
+        ${governance.proposals.map((proposal) => {
+          const lifecycle = describeProposalLifecycle(proposal, governance, walletReady);
+
+          return `
+          <article class="history-item proposal-card" data-tone="${escapeHtml(lifecycle.tone)}">
             <div class="history-head">
               <span class="history-pill" data-category="governance">
                 Proposal #${proposal.proposalId}
               </span>
-              <span class="history-meta">
-                ${escapeHtml(proposalStateLabel(proposal.stateCode))} · block ${proposal.blockNumber}
-              </span>
+              <span class="role-badge" data-tone="${escapeHtml(lifecycle.tone)}">${escapeHtml(lifecycle.label)}</span>
             </div>
             <strong class="history-title">${escapeHtml(proposal.description || `Single-action proposal #${proposal.proposalId}`)}</strong>
             <p class="history-detail">
-              Target ${escapeHtml(shortenAddress(proposal.target))} · proposer ${escapeHtml(shortenAddress(proposal.proposer))}
+              Target ${escapeHtml(proposalTargetLabel(proposal.target, state))} (${escapeHtml(shortenAddress(proposal.target))}) - proposer ${escapeHtml(shortenAddress(proposal.proposer))}
             </p>
+            <p class="proposal-lifecycle-note">${escapeHtml(lifecycle.detail)}</p>
             <div class="proposal-vote-grid">
               ${metricCard("For", formatEth(proposal.forVotes))}
               ${metricCard("Against", formatEth(proposal.againstVotes))}
               ${metricCard("Abstain", formatEth(proposal.abstainVotes))}
-              ${metricCard("Snapshot", proposal.snapshot.toString())}
-              ${metricCard("Deadline", proposal.deadline.toString())}
+              ${metricCard("Created", formatOptionalMoment(proposal.createdTimestamp))}
+              ${metricCard("Voting starts", `Block ${proposal.snapshot.toString()}`)}
+              ${metricCard("Voting ends", `Block ${proposal.deadline.toString()}`)}
+              ${metricCard("Queued at", formatOptionalMoment(proposal.queuedTimestamp))}
+              ${metricCard("Earliest execution", formatOptionalMoment(proposal.earliestExecutionTimestamp))}
               ${metricCard("Call value", formatEth(proposal.value))}
             </div>
             <div class="button-row compact-row">
-              <button type="button" class="ghost-button" data-proposal-action="vote" data-support="1" data-proposal-id="${proposal.proposalId}" ${walletReady && proposal.stateCode === 1 ? "" : "disabled"}>Vote for</button>
-              <button type="button" class="ghost-button" data-proposal-action="vote" data-support="0" data-proposal-id="${proposal.proposalId}" ${walletReady && proposal.stateCode === 1 ? "" : "disabled"}>Vote against</button>
-              <button type="button" class="ghost-button" data-proposal-action="vote" data-support="2" data-proposal-id="${proposal.proposalId}" ${walletReady && proposal.stateCode === 1 ? "" : "disabled"}>Abstain</button>
-              <button type="button" class="ghost-button" data-proposal-action="queue" data-proposal-id="${proposal.proposalId}" ${walletReady && proposal.stateCode === 3 ? "" : "disabled"}>Queue</button>
-              <button type="button" class="ghost-button" data-proposal-action="execute" data-proposal-id="${proposal.proposalId}" ${walletReady && proposal.stateCode === 4 ? "" : "disabled"}>Execute</button>
+              <button type="button" class="ghost-button" data-proposal-action="vote" data-support="1" data-proposal-id="${proposal.proposalId}" ${lifecycle.canVote ? "" : "disabled"}>Vote for</button>
+              <button type="button" class="ghost-button" data-proposal-action="vote" data-support="0" data-proposal-id="${proposal.proposalId}" ${lifecycle.canVote ? "" : "disabled"}>Vote against</button>
+              <button type="button" class="ghost-button" data-proposal-action="vote" data-support="2" data-proposal-id="${proposal.proposalId}" ${lifecycle.canVote ? "" : "disabled"}>Abstain</button>
+              <button type="button" class="ghost-button" data-proposal-action="queue" data-proposal-id="${proposal.proposalId}" ${lifecycle.canQueue ? "" : "disabled"}>Queue</button>
+              <button type="button" class="ghost-button" data-proposal-action="execute" data-proposal-id="${proposal.proposalId}" ${lifecycle.canExecute ? "" : "disabled"}>Execute</button>
             </div>
+            <p class="proposal-action-note">${escapeHtml(lifecycle.actionDetail)}</p>
           </article>
-        `).join("")}
+        `;
+        }).join("")}
       </div>
     `}
   `;
@@ -945,6 +1010,127 @@ function renderGovernance(state) {
       }
     });
   });
+}
+
+function describeProposalLifecycle(proposal, governance, walletReady) {
+  const stateCode = proposal.stateCode;
+
+  if (!walletReady) {
+    return {
+      tone: proposalStateTone(stateCode),
+      label: proposalStateLabel(stateCode),
+      canVote: false,
+      canQueue: false,
+      canExecute: false,
+      detail: baseProposalStateDetail(proposal, governance),
+      actionDetail: "Connect a wallet on the same chain as the dashboard to vote, queue, or execute proposals.",
+    };
+  }
+
+  if (stateCode === 0) {
+    return {
+      tone: "warning",
+      label: "Pending",
+      canVote: false,
+      canQueue: false,
+      canExecute: false,
+      detail: `Voting has not started yet. This proposal becomes active after block ${proposal.snapshot.toString()}.`,
+      actionDetail: "Queueing and execution stay blocked until the proposal finishes voting and succeeds.",
+    };
+  }
+  if (stateCode === 1) {
+    return {
+      tone: "success",
+      label: "Active",
+      canVote: true,
+      canQueue: false,
+      canExecute: false,
+      detail: `Voting is live now and ends after block ${proposal.deadline.toString()}.`,
+      actionDetail: "Voting is available now. Queueing only becomes available after the proposal succeeds.",
+    };
+  }
+  if (stateCode === 2) {
+    return {
+      tone: "warning",
+      label: "Defeated",
+      canVote: false,
+      canQueue: false,
+      canExecute: false,
+      detail: "This proposal did not reach a successful voting outcome, so it cannot move into the timelock queue.",
+      actionDetail: "Defeated proposals cannot be queued or executed.",
+    };
+  }
+  if (stateCode === 3) {
+    return {
+      tone: "success",
+      label: "Succeeded",
+      canVote: false,
+      canQueue: true,
+      canExecute: false,
+      detail: "This proposal passed voting and is ready to be queued into the timelock.",
+      actionDetail: "Queueing is available now. Execution only becomes available after queueing and the timelock delay.",
+    };
+  }
+  if (stateCode === 4) {
+    const readyTimestamp = proposal.earliestExecutionTimestamp;
+    const isReady = readyTimestamp !== null && governance.currentTimestamp >= readyTimestamp;
+
+    return {
+      tone: isReady ? "success" : "warning",
+      label: "Queued",
+      canVote: false,
+      canQueue: false,
+      canExecute: isReady,
+      detail: proposal.queuedTimestamp === null
+        ? "This proposal is queued in the timelock."
+        : `This proposal entered the timelock queue at ${formatOptionalMoment(proposal.queuedTimestamp)}.`,
+      actionDetail: isReady
+        ? "The timelock delay has elapsed, so execution is available now."
+        : `Execution is blocked until the timelock delay ends at ${formatOptionalMoment(readyTimestamp)}.`,
+    };
+  }
+  if (stateCode === 5) {
+    return {
+      tone: "success",
+      label: "Executed",
+      canVote: false,
+      canQueue: false,
+      canExecute: false,
+      detail: proposal.executedTimestamp === null
+        ? "This proposal has already been executed."
+        : `This proposal executed at ${formatOptionalMoment(proposal.executedTimestamp)}.`,
+      actionDetail: "Executed proposals are complete and cannot be advanced further.",
+    };
+  }
+  if (stateCode === 6) {
+    return {
+      tone: "warning",
+      label: "Canceled",
+      canVote: false,
+      canQueue: false,
+      canExecute: false,
+      detail: "This proposal was canceled before completion.",
+      actionDetail: "Canceled proposals cannot be voted, queued, or executed.",
+    };
+  }
+
+  return {
+    tone: "warning",
+    label: proposalStateLabel(stateCode),
+    canVote: false,
+    canQueue: false,
+    canExecute: false,
+    detail: baseProposalStateDetail(proposal, governance),
+    actionDetail: "This proposal is in an unknown state.",
+  };
+}
+
+function baseProposalStateDetail(proposal, governance) {
+  if (proposal.stateCode === 4 && proposal.queuedTimestamp !== null) {
+    return `Queued at ${formatOptionalMoment(proposal.queuedTimestamp)} with a timelock delay of ${formatSeconds(governance.timelockMinDelay)}.`;
+  }
+
+  return `Current lifecycle state: ${proposalStateLabel(proposal.stateCode)}.`;
 }
 
 function governanceComposerOptions(state) {
@@ -1219,6 +1405,8 @@ function renderHistory(history) {
 }
 
 function renderNotes(config, state) {
+  const demoRoleLabels = currentDemoActors().map((actor) => actor.role).join(", ");
+
   notePanel.innerHTML = `
     <ul class="notes-list">
       <li>Tracked buckets and distributions come from the configured ids because the current contracts do not enumerate them on-chain yet.</li>
@@ -1230,6 +1418,7 @@ function renderNotes(config, state) {
       <li>Current dashboard chain: ${escapeHtml(chainLabel(state.rpcChainId))}</li>
       <li>Configured buckets: ${escapeHtml(config.trackedBuckets.map((bucket) => bucket.label).join(", "))}</li>
       <li>Configured distributions: ${escapeHtml(config.trackedDistributions.map((distribution) => distribution.label).join(", "))}</li>
+      ${isLocalDemoMode(state) ? `<li>Suggested local demo roles: ${escapeHtml(demoRoleLabels)}.</li>` : ""}
     </ul>
   `;
 }
@@ -1250,12 +1439,42 @@ function renderWalletPanel() {
     <p class="wallet-note">
       ${walletExplanation(walletChainMatches)}
     </p>
+    ${renderDemoRoleGuide()}
   `;
 
   const canUseWallet = walletState.available && walletState.account !== null && walletChainMatches;
   fundTreasuryButton.disabled = !canUseWallet;
   claimDistributionButton.disabled = !canUseWallet || !hasClaimableDistribution();
   switchWalletNetworkButton.disabled = !walletState.available || rpcChainId === null;
+}
+
+function renderDemoRoleGuide() {
+  if (!isLocalDemoMode(latestState)) {
+    return "";
+  }
+
+  return `
+    <div class="callout-block">
+      <strong>Suggested local demo roles</strong>
+      <ul class="notes-list compact-list">
+        ${currentDemoActors().map((actor) => {
+          const isConnected = walletState.account !== null &&
+            lower(walletState.account) === lower(actor.address);
+
+          return `
+            <li>
+              <strong>${escapeHtml(actor.role)}</strong>
+              (${escapeHtml(shortenAddress(actor.address))}, Hardhat account #${actor.walletIndex})${isConnected ? " - connected now" : ""}
+              : ${escapeHtml(actor.story)}
+            </li>
+          `;
+        }).join("")}
+      </ul>
+      <p class="wallet-note">
+        These are local demo identities, not product user accounts. If you need them in MetaMask, import the matching Hardhat node accounts from your local chain output.
+      </p>
+    </div>
+  `;
 }
 
 function renderTreasuryActionForm(state) {
@@ -1394,6 +1613,7 @@ function buildTreasuryActionDraft(state) {
 }
 
 function clearPanels() {
+  healthPanel.innerHTML = "";
   summaryPanel.innerHTML = "";
   treasuryPanel.innerHTML = "";
   bucketsPanel.innerHTML = "";
@@ -1595,6 +1815,7 @@ function readFormConfig() {
     },
     trackedBuckets: parseTrackedItems(form.trackedBuckets.value),
     trackedDistributions: parseTrackedItems(form.trackedDistributions.value),
+    demoActors: latestConfig?.demoActors ?? structuredClone(demoDefaults.demoActors ?? []),
     history: latestConfig?.history ?? structuredClone(demoDefaults.history),
   };
 }
@@ -1678,6 +1899,14 @@ function describeTreasuryProposalPermission(state) {
   };
 }
 
+function currentDemoActors() {
+  return latestConfig?.demoActors ?? demoDefaults.demoActors ?? [];
+}
+
+function isLocalDemoMode(state) {
+  return state !== null && normalizeChainId(state.rpcChainId) === "0x7a69" && currentDemoActors().length > 0;
+}
+
 function proposalStateLabel(code) {
   if (code === 0) {
     return "Pending";
@@ -1702,6 +1931,14 @@ function proposalStateLabel(code) {
   }
 
   return `Unknown (${code})`;
+}
+
+function proposalStateTone(code) {
+  if (code === 1 || code === 3 || code === 5) {
+    return "success";
+  }
+
+  return "warning";
 }
 
 function formatEth(value) {
@@ -1836,6 +2073,100 @@ function deriveRoleView(state) {
   };
 }
 
+function deriveHealthView(state) {
+  const roleView = deriveRoleView(state);
+  const loadedAddresses = Object.values(state.addresses).filter((address) =>
+    /^0x[a-fA-F0-9]{40}$/.test(address ?? "")
+  ).length;
+  const loadedBucketCount = state.treasury.buckets.filter((bucket) => bucket.status === "loaded").length;
+  const bucketErrorCount = state.treasury.buckets.length - loadedBucketCount;
+  const activeDistributionCount = state.distributor.distributions.filter((distribution) =>
+    distribution.status === "loaded" && distribution.stateCode === 1
+  ).length;
+  const loadedDistributionCount = state.distributor.distributions.filter((distribution) =>
+    distribution.status === "loaded"
+  ).length;
+  const distributionErrorCount = state.distributor.distributions.length - loadedDistributionCount;
+
+  let readinessLabel = "Ready for governed demo";
+  let readinessTone = "success";
+  let readinessDetail = "Core module addresses are loaded, the treasury holds capital, and governance control appears handed off through the timelock path.";
+
+  if (loadedAddresses < 5) {
+    readinessLabel = "Configuration incomplete";
+    readinessTone = "warning";
+    readinessDetail = "One or more core module addresses are missing, so this dashboard view cannot fully evaluate the deployed system.";
+  } else if (roleView.pathTone === "warning") {
+    readinessLabel = "Governance wiring needs review";
+    readinessTone = "warning";
+    readinessDetail = "The governor and timelock do not yet appear fully aligned for queueing and execution, so the governed control path may not be ready.";
+  } else if (roleView.modeTone === "warning") {
+    readinessLabel = "Usable, but still bootstrap-managed";
+    readinessTone = "warning";
+    readinessDetail = "The system is readable and may still function for demos, but one or more modules or timelock roles remain outside the final governance-owned posture.";
+  } else if (state.treasury.totalBalance === 0n) {
+    readinessLabel = "Deployed, but unfunded";
+    readinessTone = "warning";
+    readinessDetail = "The core contracts appear deployed and handed off, but the treasury currently holds no native capital for the MVP flow.";
+  }
+
+  const warnings = [];
+
+  if (state.treasury.totalBalance === 0n) {
+    warnings.push("Treasury native custody is zero, so the capital operating story is not yet funded.");
+  }
+
+  if (activeDistributionCount === 0) {
+    warnings.push("No active distribution events are loaded right now, so the claim flow may not have a live next step.");
+  }
+
+  if (roleView.modeTone === "warning") {
+    warnings.push("The system still looks bootstrap-owned or only partly handed off, so control is not yet in the intended steady-state governance posture.");
+  }
+
+  if (roleView.pathTone === "warning") {
+    warnings.push("Governor and timelock roles do not appear fully aligned, so proposal queueing or execution may be blocked by setup rather than policy.");
+  }
+
+  if (bucketErrorCount > 0) {
+    warnings.push("One or more tracked bucket ids could not be loaded from the current treasury state. Check the configured demo bucket list.");
+  }
+
+  if (distributionErrorCount > 0) {
+    warnings.push("One or more tracked distribution ids could not be loaded from the current distributor state. Check the configured event list.");
+  }
+
+  const interpretation = [
+    "Addresses loaded confirms whether the dashboard has enough contract wiring to read the full MVP stack.",
+    "Treasury custody and distributor outstanding show whether capital is actually present and whether any funded claims still exist.",
+    `${roleView.modeLabel} means ${roleView.modeDetail.toLowerCase()}`,
+  ];
+
+  if (isLocalDemoMode(state)) {
+    interpretation.push("This also looks like the seeded local demo chain, so the wallet role guide and tracked demo ids should line up with the default story.");
+  } else {
+    interpretation.push("This is a lightweight direct-read health view, not a full monitoring backend or authoritative production alerting layer.");
+  }
+
+  return {
+    readinessLabel,
+    readinessTone,
+    readinessDetail,
+    controlLabel: roleView.modeLabel,
+    controlTone: roleView.modeTone,
+    controlDetail: roleView.modeDetail,
+    addressesLoaded: loadedAddresses,
+    addressesExpected: 5,
+    activeDistributionCount: activeDistributionCount.toString(),
+    loadedBucketCount: loadedBucketCount.toString(),
+    totalBucketCount: state.treasury.buckets.length.toString(),
+    proposalCount: state.governance.proposalCount.toString(),
+    warnings,
+    clearMessage: "No obvious problems stood out from the current direct contract reads. For this MVP, the system looks coherent enough to explore.",
+    interpretation,
+  };
+}
+
 function buildRoleRow({ label, controller, expected, isExpected, copy }) {
   return {
     label,
@@ -1858,6 +2189,14 @@ function formatHistoryMoment(timestamp) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function formatOptionalMoment(timestamp) {
+  if (timestamp === null || timestamp === undefined) {
+    return "Not yet";
+  }
+
+  return formatHistoryMoment(timestamp);
 }
 
 function emptyState(message) {

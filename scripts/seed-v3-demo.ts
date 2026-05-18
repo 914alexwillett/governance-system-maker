@@ -13,22 +13,28 @@ import {
 
 const { networkName, viem, networkHelpers } = await network.create();
 const publicClient = await viem.getPublicClient();
-const [deployer, operationsRecipient, distributionRecipient] =
+const [deployer, governanceParticipant, operationsRecipient, distributionRecipient, viewer] =
   await viem.getWalletClients();
 
 if (
   deployer.account === undefined ||
+  governanceParticipant.account === undefined ||
   operationsRecipient.account === undefined ||
-  distributionRecipient.account === undefined
+  distributionRecipient.account === undefined ||
+  viewer?.account === undefined
 ) {
   throw new Error("Expected default wallet clients for the local demo seed.");
 }
 
 const deployerAddress = getAddress(deployer.account.address);
+const governanceParticipantAddress = getAddress(
+  governanceParticipant.account.address,
+);
 const operationsRecipientAddress = getAddress(operationsRecipient.account.address);
 const distributionRecipientAddress = getAddress(
   distributionRecipient.account.address,
 );
+const viewerAddress = getAddress(viewer.account.address);
 
 const deployConfig = getDeployV3Config(networkName);
 const demoConfig = getSeedV3DemoConfig(networkName);
@@ -49,6 +55,35 @@ if (delegatedVotes < deployConfig.governor.proposalThreshold) {
     "The bootstrap actor does not have enough delegated voting power to seed the governed demo flow.",
   );
 }
+
+console.log("");
+console.log("Preparing demo identities");
+console.log("=========================");
+
+await waitForTransaction(
+  deployed.governanceToken.write.transfer([
+    governanceParticipantAddress,
+    demoConfig.governanceParticipantTokenAllocation,
+  ]),
+);
+
+const governanceParticipantToken = await viem.getContractAt(
+  "GovernanceToken",
+  deployed.governanceToken.address,
+  { client: { wallet: governanceParticipant } },
+);
+
+await waitForTransaction(
+  governanceParticipantToken.write.delegate([governanceParticipantAddress]),
+);
+
+const governanceParticipantVotes = await deployed.governanceToken.read.getVotes([
+  governanceParticipantAddress,
+]);
+
+console.log(
+  `Governance participant funded with ${formatEth(demoConfig.governanceParticipantTokenAllocation)} GOV and self-delegated to ${formatEth(governanceParticipantVotes)} votes.`,
+);
 
 console.log("");
 console.log("Funding custody");
@@ -173,12 +208,47 @@ const finalState = {
   demoStory: {
     treasuryFundingEth: formatEth(demoConfig.treasuryFunding),
     timelockFundingEth: formatEth(demoConfig.timelockFunding),
+    governanceParticipantFunding: formatEth(
+      demoConfig.governanceParticipantTokenAllocation,
+    ),
     operationsBucketId: demoConfig.operationsBucketId,
     distributionId: demoConfig.distributionId,
     distributionLabel: demoConfig.distributionLabel,
     operationsRecipient: operationsRecipientAddress,
     distributionRecipient: distributionRecipientAddress,
   },
+  demoActors: [
+    {
+      role: "bootstrap-admin",
+      walletIndex: 0,
+      address: deployerAddress,
+      story: "Initial deployer, bootstrap actor, and seeded governance driver.",
+    },
+    {
+      role: "governance-participant",
+      walletIndex: 1,
+      address: governanceParticipantAddress,
+      story: "Non-bootstrap governance user with self-delegated votes for proposal and voting demos.",
+    },
+    {
+      role: "treasury-recipient",
+      walletIndex: 2,
+      address: operationsRecipientAddress,
+      story: "Recipient of the seeded operating spend from the treasury bucket.",
+    },
+    {
+      role: "distribution-claimant",
+      walletIndex: 3,
+      address: distributionRecipientAddress,
+      story: "Suggested claimant for the seeded distribution demo. In this MVP claim path, this is a demo role rather than an enforced allowlist.",
+    },
+    {
+      role: "viewer",
+      walletIndex: 4,
+      address: viewerAddress,
+      story: "Optional read-first account for observing the system without using the seeded actor flows.",
+    },
+  ],
   treasury: {
     owner: await deployed.treasury.read.owner(),
     totalBalance: (await deployed.treasury.read.totalBalance([zeroAddress()])).toString(),
@@ -214,16 +284,20 @@ const finalState = {
     },
   },
   governance: {
-    tokenVotes: delegatedVotes.toString(),
+    bootstrapVotes: delegatedVotes.toString(),
+    governanceParticipantVotes: governanceParticipantVotes.toString(),
+    proposalThreshold: deployConfig.governor.proposalThreshold.toString(),
     timelockAdmin: await deployed.governanceTimelock.read.admin(),
     timelockProposer: await deployed.governanceTimelock.read.proposer(),
     timelockExecutor: await deployed.governanceTimelock.read.executor(),
     timelockMinDelay: (await deployed.governanceTimelock.read.minDelay()).toString(),
   },
   notes: [
+    "This local seed intentionally creates a small multi-user story across bootstrap governance, a second governance participant, a treasury recipient, and a suggested distribution claimant.",
     "Treasury capital was classified, bucketed, and partially spent through governance.",
     "A claimable community distribution was created and funded through the governor and timelock.",
     "The seeded distribution is intentionally left unclaimed so the demo still has a next action.",
+    "The governance participant is a real token holder with self-delegated votes, but demo account role labels are still a local convenience rather than a production identity system.",
     "This MVP does not yet route treasury distributable balances directly into the distributor, so the demo funds the distributor from ETH held by the timelock.",
   ],
 };
@@ -236,10 +310,13 @@ console.log(`Treasury:            ${deployed.treasury.address}`);
 console.log(`Distributor:         ${deployed.distributor.address}`);
 console.log(`GovernanceTimelock:  ${deployed.governanceTimelock.address}`);
 console.log(`GovernanceGovernor:  ${deployed.governanceGovernor.address}`);
+console.log(`Bootstrap actor:     ${deployerAddress} (Hardhat account #0)`);
+console.log(`Gov participant:     ${governanceParticipantAddress} (Hardhat account #1)`);
 console.log(`Operations bucket:   ${demoConfig.operationsBucketId}`);
-console.log(`Operating recipient: ${operationsRecipientAddress}`);
+console.log(`Treasury recipient:  ${operationsRecipientAddress} (Hardhat account #2)`);
 console.log(`Distribution id:     ${demoConfig.distributionId}`);
-console.log(`Claim recipient:     ${distributionRecipientAddress}`);
+console.log(`Claim recipient:     ${distributionRecipientAddress} (Hardhat account #3)`);
+console.log(`Viewer account:      ${viewerAddress} (Hardhat account #4)`);
 console.log("");
 console.log("Seeded State (JSON)");
 console.log(JSON.stringify(finalState, bigintReplacer, 2));

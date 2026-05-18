@@ -69,6 +69,10 @@ export async function loadDashboardState(config) {
 
 async function loadGovernanceState(config) {
   const { rpcUrl, addresses } = config;
+  const latestBlock = await rpcRequest(rpcUrl, "eth_getBlockByNumber", ["latest", false]);
+  const currentBlockNumber = Number(BigInt(latestBlock.number));
+  const currentTimestamp = Number(BigInt(latestBlock.timestamp));
+  const blockCache = new Map([[currentBlockNumber, currentTimestamp]]);
   const proposalCount = await callUint(rpcUrl, addresses.governanceGovernor, SELECTORS.proposalCount);
   const proposalThreshold = await callUint(
     rpcUrl,
@@ -82,14 +86,73 @@ async function loadGovernanceState(config) {
     addresses.governanceGovernor,
     SELECTORS.quorumNumeratorBps,
   );
-  const createdProposalLogs = await getLogs(rpcUrl, {
-    address: addresses.governanceGovernor,
-    fromBlock: "0x0",
-    toBlock: "latest",
-    topics: [[EVENT_TOPICS.governance.proposalCreated]],
-  });
+  const timelockMinDelay = await callUint(
+    rpcUrl,
+    addresses.governanceTimelock,
+    SELECTORS.minDelay,
+  );
+  const [createdProposalLogs, queuedProposalLogs, executedProposalLogs] = await Promise.all([
+    getLogs(rpcUrl, {
+      address: addresses.governanceGovernor,
+      fromBlock: "0x0",
+      toBlock: "latest",
+      topics: [[EVENT_TOPICS.governance.proposalCreated]],
+    }),
+    getLogs(rpcUrl, {
+      address: addresses.governanceGovernor,
+      fromBlock: "0x0",
+      toBlock: "latest",
+      topics: [[EVENT_TOPICS.governance.proposalQueued]],
+    }),
+    getLogs(rpcUrl, {
+      address: addresses.governanceGovernor,
+      fromBlock: "0x0",
+      toBlock: "latest",
+      topics: [[EVENT_TOPICS.governance.proposalExecuted]],
+    }),
+  ]);
+  const queuedByProposalId = new Map(
+    await Promise.all(
+      queuedProposalLogs.map(async (log) => ([
+        Number(decodeTopicUint(log.topics[1])),
+        {
+          blockNumber: Number(BigInt(log.blockNumber)),
+          timestamp: await getBlockTimestamp(
+            rpcUrl,
+            Number(BigInt(log.blockNumber)),
+            blockCache,
+          ),
+          transactionHash: log.transactionHash,
+        },
+      ])),
+    ),
+  );
+  const executedByProposalId = new Map(
+    await Promise.all(
+      executedProposalLogs.map(async (log) => ([
+        Number(decodeTopicUint(log.topics[1])),
+        {
+          blockNumber: Number(BigInt(log.blockNumber)),
+          timestamp: await getBlockTimestamp(
+            rpcUrl,
+            Number(BigInt(log.blockNumber)),
+            blockCache,
+          ),
+          transactionHash: log.transactionHash,
+        },
+      ])),
+    ),
+  );
   const createdProposals = await Promise.all(
-    createdProposalLogs.map((log) => decodeProposalCreatedLog(log, rpcUrl, addresses.governanceGovernor)),
+    createdProposalLogs.map((log) => decodeProposalCreatedLog(
+      log,
+      rpcUrl,
+      addresses.governanceGovernor,
+      blockCache,
+      timelockMinDelay,
+      queuedByProposalId,
+      executedByProposalId,
+    )),
   );
 
   createdProposals.sort((left, right) => right.proposalId - left.proposalId);
@@ -104,6 +167,9 @@ async function loadGovernanceState(config) {
     votingDelay,
     votingPeriod,
     quorumNumeratorBps,
+    timelockMinDelay,
+    currentBlockNumber,
+    currentTimestamp,
     proposals: createdProposals,
   };
 }
@@ -520,7 +586,15 @@ function decodeHistoryLog(log, bucketLabels, distributionLabels) {
   return null;
 }
 
-async function decodeProposalCreatedLog(log, rpcUrl, governorAddress) {
+async function decodeProposalCreatedLog(
+  log,
+  rpcUrl,
+  governorAddress,
+  blockCache,
+  timelockMinDelay,
+  queuedByProposalId,
+  executedByProposalId,
+) {
   const proposalId = Number(decodeTopicUint(log.topics[1]));
   const proposer = decodeTopicAddress(log.topics[2]);
   const target = decodeTopicAddress(log.topics[3]);
@@ -528,10 +602,14 @@ async function decodeProposalCreatedLog(log, rpcUrl, governorAddress) {
   const snapshot = decodeUint(log.data, 1);
   const deadline = decodeUint(log.data, 2);
   const description = decodeDynamicString(log.data, 3);
+  const createdBlockNumber = Number(BigInt(log.blockNumber));
+  const createdTimestamp = await getBlockTimestamp(rpcUrl, createdBlockNumber, blockCache);
   const [stateCode, voteData] = await Promise.all([
     callUint(rpcUrl, governorAddress, SELECTORS.governorState + encodeUint(proposalId)),
     callRaw(rpcUrl, governorAddress, SELECTORS.proposalVotes + encodeUint(proposalId)),
   ]);
+  const queuedLifecycle = queuedByProposalId.get(proposalId) ?? null;
+  const executedLifecycle = executedByProposalId.get(proposalId) ?? null;
 
   return {
     proposalId,
@@ -545,8 +623,16 @@ async function decodeProposalCreatedLog(log, rpcUrl, governorAddress) {
     againstVotes: decodeUint(voteData, 0),
     forVotes: decodeUint(voteData, 1),
     abstainVotes: decodeUint(voteData, 2),
+    createdTimestamp,
+    queuedTimestamp: queuedLifecycle?.timestamp ?? null,
+    queuedBlockNumber: queuedLifecycle?.blockNumber ?? null,
+    executedTimestamp: executedLifecycle?.timestamp ?? null,
+    executedBlockNumber: executedLifecycle?.blockNumber ?? null,
+    earliestExecutionTimestamp: queuedLifecycle === null
+      ? null
+      : queuedLifecycle.timestamp + Number(timelockMinDelay),
     transactionHash: log.transactionHash,
-    blockNumber: Number(BigInt(log.blockNumber)),
+    blockNumber: createdBlockNumber,
   };
 }
 

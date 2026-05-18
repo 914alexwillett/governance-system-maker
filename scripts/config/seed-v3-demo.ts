@@ -12,6 +12,7 @@ export interface SeedV3DeploymentAddresses {
 export interface SeedV3DemoConfig {
   treasuryFunding: bigint;
   timelockFunding: bigint;
+  governanceParticipantTokenAllocation: bigint;
   operatingClassification: bigint;
   operatingBucketAllocation: bigint;
   operatingSpendAmount: bigint;
@@ -25,6 +26,7 @@ export interface SeedV3DemoConfig {
 const sharedConfig: Omit<SeedV3DemoConfig, "deploymentAddresses"> = {
   treasuryFunding: parseEther("5"),
   timelockFunding: parseEther("2"),
+  governanceParticipantTokenAllocation: parseEther("20000"),
   operatingClassification: parseEther("3"),
   operatingBucketAllocation: parseEther("2"),
   operatingSpendAmount: parseEther("1"),

@@ -126,11 +126,12 @@ The local demo script creates a readable example state:
 1. deploy or load the current MVP modules
 2. fund the treasury with ETH
 3. fund the timelock for governed distributor funding
-4. classify operating capital through governance
-5. allocate one operating budget bucket
-6. spend part of that bucket
-7. create and fund one community distribution event
-8. leave that distribution unclaimed so there is still a next action to demo
+4. seed a second governance participant with self-delegated voting power
+5. classify operating capital through governance
+6. allocate one operating budget bucket
+7. spend part of that bucket
+8. create and fund one community distribution event
+9. leave that distribution unclaimed so there is still a next action to demo
 
 Important local note:
 - `hardhatMainnet` is an ephemeral local simulation
@@ -248,6 +249,7 @@ What it does today:
 - reads tracked distributor event state
 - reads governance proposals, vote totals, and proposal status
 - shows a role and control view for ownership and governance relationships
+- shows a compact system health view for funding, handoff posture, and basic readiness signals
 - reads timelock ownership wiring
 - shows a lightweight recent activity feed from treasury, distributor, and governor logs
 - connects an injected wallet such as MetaMask
@@ -294,9 +296,26 @@ http://127.0.0.1:4173
 - connect the wallet to the dashboard
 - switch the wallet to the same chain as the dashboard RPC if prompted
 - use `Fund Treasury` to send ETH into treasury custody
+- use the wallet panel’s local demo role guide to switch between the seeded Hardhat accounts
 - use `Treasury Operating Actions` to prepare a narrow treasury proposal for budget allocation or bucket spend when the connected wallet has enough delegated votes
 - review `Distributor Events` to see which tracked event is active and why it is or is not claimable
 - use `Claim Distribution` to claim the remaining amount from the tracked seeded distribution
+
+Suggested local demo roles:
+- `Bootstrap admin` (`Hardhat account #0`)
+  - deployer, bootstrap actor, and seeded governance driver
+- `Governance participant` (`Hardhat account #1`)
+  - secondary governance user seeded with delegated votes so you can demo non-bootstrap proposal and voting behavior
+- `Treasury recipient` (`Hardhat account #2`)
+  - recipient of the seeded operating spend
+- `Distribution claimant` (`Hardhat account #3`)
+  - suggested claimant for the seeded distribution demo
+- `Viewer` (`Hardhat account #4`)
+  - optional read-first wallet for observing the system without driving the seeded actor story
+
+Important demo honesty note:
+- these are local demo identities, not real product user accounts
+- the current distribution claim path is still a simple self-claim flow, so the suggested claimant role is a demo convenience rather than an enforced on-chain allowlist
 
 How a new user should use the guided flow:
 - start with the `Guided Demo` section at the top of the page
@@ -325,6 +344,8 @@ What the current governance view supports:
 - reading proposals from real governor events plus live on-chain proposal state
 - creating a small set of honest single-action proposals that match the current governor contract
 - voting, queueing, and executing proposals when the connected wallet is on the right chain and the proposal state allows it
+- explaining when queueing or execution is blocked by proposal state or the timelock delay
+- showing helpful lifecycle metadata such as created time, voting start and end blocks, queue time, and earliest execution time when practical
 - showing the practical MVP limitation that broader multi-call governance actions are not in this UI yet because the governor contract itself is still intentionally single-action
 
 What the current activity feed supports:
@@ -339,6 +360,14 @@ What the current roles view supports:
 - timelock admin, proposer, and executor
 - whether governor/timelock wiring appears aligned
 - whether the system looks fully handed off or still in bootstrap / partial-handoff mode
+
+What the current system health view supports:
+- whether the core contract addresses are loaded into the dashboard
+- treasury native custody and distributor outstanding amount
+- active distribution count and tracked bucket load status
+- whether the system looks bootstrap-managed or governance-controlled
+- lightweight warnings when the treasury is unfunded, no active distributions are loaded, or governance handoff looks incomplete
+- an honest note that these are direct-read MVP health signals, not a full monitoring backend
 
 Current analytics compromise:
 - the feed reads recent direct contract logs from the configured addresses over a recent block window

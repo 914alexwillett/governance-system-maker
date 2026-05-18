@@ -447,6 +447,21 @@ button:disabled {
   margin-top: 16px;
 }
 
+.proposal-card[data-tone="success"] {
+  border-color: rgba(13, 122, 95, 0.2);
+}
+
+.proposal-card[data-tone="warning"] {
+  border-color: rgba(180, 83, 9, 0.2);
+}
+
+.proposal-lifecycle-note,
+.proposal-action-note {
+  margin: 12px 0 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
 .history-pill {
   padding: 6px 10px;
   border-radius: 999px;
