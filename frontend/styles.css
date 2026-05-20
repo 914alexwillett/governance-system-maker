@@ -188,6 +188,11 @@ button:disabled {
   color: var(--accent-deep);
 }
 
+.status-banner[data-tone="warning"] {
+  background: rgba(180, 83, 9, 0.12);
+  color: var(--warning);
+}
+
 .status-banner[data-tone="error"] {
   background: rgba(180, 35, 24, 0.12);
   color: var(--danger);
@@ -695,6 +700,47 @@ button:disabled {
   color: var(--ink);
 }
 
+.compare-card {
+  margin-top: 18px;
+}
+
+.compare-summary-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  margin-top: 18px;
+}
+
+.compare-table {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.compare-row {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1.1fr) repeat(2, minmax(0, 1fr));
+  align-items: start;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.compare-head {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.82rem;
+  color: var(--muted);
+  background: rgba(245, 239, 230, 0.85);
+}
+
+.compare-label {
+  font-weight: 700;
+  color: var(--ink);
+}
+
 .list-head,
 .list-row {
   display: grid;
@@ -768,7 +814,8 @@ button:disabled {
   .list-head,
   .list-row,
   .distributor-head,
-  .distributor-row {
+  .distributor-row,
+  .compare-row {
     grid-template-columns: 1fr;
   }
 

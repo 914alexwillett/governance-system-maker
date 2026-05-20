@@ -30,6 +30,7 @@ const CONFIG_STORAGE_KEY = "governance-capital-demo-config-v1";
 const DEPLOYER_STORAGE_KEY = "governance-capital-launch-config-v1";
 const GUIDED_DEMO_STORAGE_KEY = "governance-capital-guided-demo-step-v1";
 const INSTANCE_REGISTRY_STORAGE_KEY = "governance-capital-instance-registry-v1";
+const INSTANCE_COMPARE_STORAGE_KEY = "governance-capital-instance-compare-v1";
 
 const GUIDED_DEMO_STEPS = [
   {
@@ -116,17 +117,34 @@ const instanceStatusBanner = document.querySelector("#instance-status-banner");
 const instanceSummaryPanel = document.querySelector("#instance-summary-panel");
 const instanceListPanel = document.querySelector("#instance-list-panel");
 const saveCurrentInstanceButton = document.querySelector("#save-current-instance");
+const instanceCompareForm = document.querySelector("#instance-compare-form");
+const comparePrimaryInstanceSelect = document.querySelector("#compare-primary-instance");
+const compareSecondaryInstanceSelect = document.querySelector("#compare-secondary-instance");
+const compareStatusBanner = document.querySelector("#compare-status-banner");
+const comparePanel = document.querySelector("#compare-panel");
 
 const form = document.querySelector("#config-form");
 const statusBanner = document.querySelector("#status-banner");
 const writeStatusBanner = document.querySelector("#write-status-banner");
 const shareStateBanner = document.querySelector("#share-state-banner");
 const healthPanel = document.querySelector("#health-panel");
+const opsPanel = document.querySelector("#ops-panel");
+const sandboxStatusBanner = document.querySelector("#sandbox-status-banner");
+const sandboxTreasuryForm = document.querySelector("#sandbox-treasury-form");
+const sandboxTreasuryPreview = document.querySelector("#sandbox-treasury-preview");
+const sandboxDistributorForm = document.querySelector("#sandbox-distributor-form");
+const sandboxDistributorPreview = document.querySelector("#sandbox-distributor-preview");
+const sandboxGovernancePreview = document.querySelector("#sandbox-governance-preview");
 const summaryPanel = document.querySelector("#summary-panel");
 const treasuryPanel = document.querySelector("#treasury-panel");
 const bucketsPanel = document.querySelector("#buckets-panel");
+const runwayForm = document.querySelector("#runway-form");
+const runwayPanel = document.querySelector("#runway-panel");
+const distributionCampaignForm = document.querySelector("#distribution-campaign-form");
+const distributionCampaignPanel = document.querySelector("#distribution-campaign-panel");
 const distributorPanel = document.querySelector("#distributor-panel");
 const rolesPanel = document.querySelector("#roles-panel");
+const governanceAnalyticsPanel = document.querySelector("#governance-analytics-panel");
 const governancePanel = document.querySelector("#governance-panel");
 const timelockPanel = document.querySelector("#timelock-panel");
 const historyPanel = document.querySelector("#history-panel");
@@ -157,6 +175,7 @@ let latestLaunchPlan = null;
 let guidedDemoStepIndex = loadGuidedDemoStepIndex();
 let latestWalletVotes = 0n;
 let instanceRegistry = loadStoredInstanceRegistry();
+let latestCompareResult = null;
 let walletState = {
   available: false,
   account: null,
@@ -218,6 +237,11 @@ async function bootstrap() {
     await handleInstanceListAction(event);
   });
 
+  instanceCompareForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await handleCompareInstances();
+  });
+
   const config = loadStoredConfig();
   hydrateForm(config);
   latestConfig = config;
@@ -268,6 +292,49 @@ async function bootstrap() {
     await handleFundTreasury();
   });
 
+  sandboxTreasuryForm.actionKey.addEventListener("change", () => {
+    renderSandboxMode(latestState);
+  });
+  sandboxTreasuryForm.bucketId.addEventListener("change", () => {
+    renderSandboxMode(latestState);
+  });
+  sandboxTreasuryForm.amountEth.addEventListener("input", () => {
+    renderSandboxMode(latestState);
+  });
+
+  sandboxDistributorForm.actionKey.addEventListener("change", () => {
+    renderSandboxMode(latestState);
+  });
+  sandboxDistributorForm.distributionId.addEventListener("change", () => {
+    renderSandboxMode(latestState);
+  });
+  sandboxDistributorForm.amountEth.addEventListener("input", () => {
+    renderSandboxMode(latestState);
+  });
+
+  runwayForm.bucketId.addEventListener("change", () => {
+    renderBudgetRunway(latestState);
+  });
+  runwayForm.monthlyBurnEth.addEventListener("input", () => {
+    renderBudgetRunway(latestState);
+  });
+
+  distributionCampaignForm.distributionId.addEventListener("change", () => {
+    renderDistributionCampaignSetup(latestState);
+  });
+  distributionCampaignForm.totalAmountEth.addEventListener("input", () => {
+    renderDistributionCampaignSetup(latestState);
+  });
+  distributionCampaignForm.initialFundingEth.addEventListener("input", () => {
+    renderDistributionCampaignSetup(latestState);
+  });
+  distributionCampaignForm.recipientCount.addEventListener("input", () => {
+    renderDistributionCampaignSetup(latestState);
+  });
+  distributionCampaignForm.claimModel.addEventListener("change", () => {
+    renderDistributionCampaignSetup(latestState);
+  });
+
   treasuryGovernanceForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     await handleTreasuryGovernanceAction();
@@ -299,12 +366,16 @@ async function bootstrap() {
     walletState = await getWalletState();
     latestWalletVotes = await refreshWalletVotes(latestConfig);
     renderWalletPanel();
+    renderSandboxMode(latestState);
     renderTreasuryActionForm(latestState);
     renderGovernance(latestState);
     renderClaimPreview();
   });
 
   renderWalletPanel();
+  renderSandboxMode(latestState);
+  renderBudgetRunway(latestState);
+  renderDistributionCampaignSetup(latestState);
   renderTreasuryActionForm(latestState);
   renderClaimPreview();
   void refresh();
@@ -337,11 +408,16 @@ async function refresh() {
     syncSavedInstanceFromLiveState(config, state);
     hydrateClaimSelector(config, state);
     renderHealth(state);
+    renderOpsAdmin(state);
+    renderSandboxMode(state);
     renderSummary(config, state);
     renderTreasury(state.treasury);
     renderBuckets(state.treasury.buckets);
+    renderBudgetRunway(state);
+    renderDistributionCampaignSetup(state);
     renderDistributor(state.distributor);
     renderRoles(state);
+    renderGovernanceAnalytics(state);
     renderGovernance(state);
     renderTimelock(state.timelock);
     renderHistory(state.history);
@@ -355,8 +431,13 @@ async function refresh() {
     latestState = null;
     clearPanels();
     renderHealth(null);
+    renderOpsAdmin(null);
+    renderSandboxMode(null);
+    renderBudgetRunway(null);
+    renderDistributionCampaignSetup(null);
     renderWalletPanel();
     renderTreasuryActionForm(null);
+    renderGovernanceAnalytics(null);
     renderGovernance(null);
     renderClaimPreview();
     renderInstanceManager();
@@ -389,6 +470,65 @@ function handleSaveCurrentInstance() {
   } catch (error) {
     setInstanceStatus(toMessage(error), "error");
   }
+}
+
+async function handleCompareInstances() {
+  const primaryId = comparePrimaryInstanceSelect.value;
+  const secondaryId = compareSecondaryInstanceSelect.value;
+
+  if (primaryId.length === 0 || secondaryId.length === 0) {
+    setCompareStatus("Choose two saved instances before running a comparison.", "error");
+    comparePanel.innerHTML = emptyState("Saved instances will appear here once the shelf has at least two records.");
+    return;
+  }
+
+  if (primaryId === secondaryId) {
+    setCompareStatus("Choose two different saved instances for a side-by-side comparison.", "error");
+    return;
+  }
+
+  const primaryRecord = instanceRegistry.find((item) => item.id === primaryId);
+  const secondaryRecord = instanceRegistry.find((item) => item.id === secondaryId);
+
+  if (primaryRecord === undefined || secondaryRecord === undefined) {
+    setCompareStatus("One of the selected instance records is no longer available.", "error");
+    renderInstanceManager();
+    return;
+  }
+
+  storeInstanceCompareSelection({
+    primaryInstanceId: primaryId,
+    secondaryInstanceId: secondaryId,
+  });
+
+  setCompareStatus("Loading live state for both selected instances.", "loading");
+
+  const [primaryResult, secondaryResult] = await Promise.all([
+    loadCompareTarget(primaryRecord),
+    loadCompareTarget(secondaryRecord),
+  ]);
+
+  latestCompareResult = {
+    primaryRecord,
+    secondaryRecord,
+    primaryResult,
+    secondaryResult,
+  };
+
+  renderComparePanel(latestCompareResult);
+
+  if (primaryResult.status === "success" && secondaryResult.status === "success") {
+    setCompareStatus(
+      `Compared ${primaryRecord.label} and ${secondaryRecord.label} using live RPC reads.`,
+      "success",
+    );
+    return;
+  }
+
+  setCompareStatus(
+    "Comparison loaded with partial data. One or both instances could not be read fully from their configured RPC endpoint.",
+    "warning",
+  );
 }
 
 async function handleInstanceListAction(event) {
@@ -754,6 +894,7 @@ function renderInstanceManager() {
   const config = latestConfig ?? loadStoredConfig();
   const savedRecord = findSavedInstance(config);
   const selectedSummary = buildSelectedInstanceSummary(config, latestState, savedRecord);
+  const compareSelection = loadStoredInstanceCompareSelection();
 
   instanceSummaryPanel.innerHTML = `
     <div class="roles-overview">
@@ -783,6 +924,11 @@ function renderInstanceManager() {
     instanceListPanel.innerHTML = emptyState(
       "No saved instances yet. Import deployment output, load a shared state bundle, or save the current dashboard config.",
     );
+    comparePrimaryInstanceSelect.innerHTML = '<option value="">No saved instances</option>';
+    compareSecondaryInstanceSelect.innerHTML = '<option value="">No saved instances</option>';
+    comparePanel.innerHTML = emptyState(
+      "Save or import at least two instances to use the side-by-side comparison view.",
+    );
     return;
   }
 
@@ -793,6 +939,74 @@ function renderInstanceManager() {
       ${instanceRegistry.map((record) => renderInstanceCard(record, record.id === selectedId)).join("")}
     </div>
   `;
+
+  renderCompareControls(compareSelection, selectedId);
+
+  if (latestCompareResult !== null) {
+    const primaryStillExists = instanceRegistry.some((record) => record.id === latestCompareResult.primaryRecord.id);
+    const secondaryStillExists = instanceRegistry.some((record) => record.id === latestCompareResult.secondaryRecord.id);
+
+    if (primaryStillExists && secondaryStillExists) {
+      renderComparePanel(latestCompareResult);
+      return;
+    }
+  }
+
+  if (instanceRegistry.length < 2) {
+    comparePanel.innerHTML = emptyState(
+      "Add one more saved instance to compare two deployments side by side.",
+    );
+    return;
+  }
+
+  comparePanel.innerHTML = emptyState(
+    "Choose two saved instances and use Compare instances to load a live side-by-side view.",
+  );
+}
+
+function renderCompareControls(compareSelection, selectedId) {
+  const primaryId = resolveCompareRecordId(
+    compareSelection.primaryInstanceId,
+    selectedId,
+    0,
+  );
+  const secondaryId = resolveCompareRecordId(
+    compareSelection.secondaryInstanceId,
+    primaryId,
+    1,
+  );
+
+  comparePrimaryInstanceSelect.innerHTML = instanceRegistry.map((record) => `
+    <option value="${escapeHtml(record.id)}">${escapeHtml(record.label)}</option>
+  `).join("");
+
+  compareSecondaryInstanceSelect.innerHTML = instanceRegistry.map((record) => `
+    <option value="${escapeHtml(record.id)}">${escapeHtml(record.label)}</option>
+  `).join("");
+
+  comparePrimaryInstanceSelect.value = primaryId;
+  compareSecondaryInstanceSelect.value = secondaryId;
+
+  storeInstanceCompareSelection({
+    primaryInstanceId: primaryId,
+    secondaryInstanceId: secondaryId,
+  });
+}
+
+function resolveCompareRecordId(preferredId, fallbackAvoidId, fallbackIndex) {
+  if (instanceRegistry.some((record) => record.id === preferredId)) {
+    return preferredId;
+  }
+
+  const preferredFallback = instanceRegistry.find((record) =>
+    record.id !== fallbackAvoidId
+  );
+
+  if (preferredFallback !== undefined && fallbackIndex !== 0) {
+    return preferredFallback.id;
+  }
+
+  return instanceRegistry[fallbackIndex]?.id ?? instanceRegistry[0]?.id ?? "";
 }
 
 function buildSelectedInstanceSummary(config, state, savedRecord) {
@@ -861,6 +1075,217 @@ function renderInstanceCard(record, isSelected) {
       </div>
     </article>
   `;
+}
+
+function renderComparePanel(result) {
+  const primary = buildCompareView(result.primaryRecord, result.primaryResult);
+  const secondary = buildCompareView(result.secondaryRecord, result.secondaryResult);
+  const rows = [
+    {
+      label: "Instance label",
+      left: primary.label,
+      right: secondary.label,
+    },
+    {
+      label: "Source",
+      left: primary.source,
+      right: secondary.source,
+    },
+    {
+      label: "Network",
+      left: primary.network,
+      right: secondary.network,
+    },
+    {
+      label: "RPC status",
+      left: primary.rpcStatus,
+      right: secondary.rpcStatus,
+    },
+    {
+      label: "Governor address",
+      left: primary.governorAddress,
+      right: secondary.governorAddress,
+    },
+    {
+      label: "Timelock address",
+      left: primary.timelockAddress,
+      right: secondary.timelockAddress,
+    },
+    {
+      label: "Governance posture",
+      left: primary.controlPosture,
+      right: secondary.controlPosture,
+    },
+    {
+      label: "Voting delay",
+      left: primary.votingDelay,
+      right: secondary.votingDelay,
+    },
+    {
+      label: "Voting period",
+      left: primary.votingPeriod,
+      right: secondary.votingPeriod,
+    },
+    {
+      label: "Proposal threshold",
+      left: primary.proposalThreshold,
+      right: secondary.proposalThreshold,
+    },
+    {
+      label: "Timelock delay",
+      left: primary.timelockDelay,
+      right: secondary.timelockDelay,
+    },
+    {
+      label: "Treasury custody",
+      left: primary.treasuryCustody,
+      right: secondary.treasuryCustody,
+    },
+    {
+      label: "Available operating",
+      left: primary.availableOperating,
+      right: secondary.availableOperating,
+    },
+    {
+      label: "Tracked buckets loaded",
+      left: primary.bucketSummary,
+      right: secondary.bucketSummary,
+    },
+    {
+      label: "Distributor outstanding",
+      left: primary.distributorOutstanding,
+      right: secondary.distributorOutstanding,
+    },
+    {
+      label: "Active distributions",
+      left: primary.activeDistributions,
+      right: secondary.activeDistributions,
+    },
+    {
+      label: "Tracked distributions loaded",
+      left: primary.distributionSummary,
+      right: secondary.distributionSummary,
+    },
+    {
+      label: "Proposal count",
+      left: primary.proposalCount,
+      right: secondary.proposalCount,
+    },
+  ];
+
+  comparePanel.innerHTML = `
+    <div class="compare-summary-grid">
+      <div class="role-status-card" data-mode="${escapeHtml(primary.tone)}">
+        <span class="eyebrow">Left instance</span>
+        <strong>${escapeHtml(primary.label)}</strong>
+        <p>${escapeHtml(primary.summary)}</p>
+      </div>
+      <div class="role-status-card" data-mode="${escapeHtml(secondary.tone)}">
+        <span class="eyebrow">Right instance</span>
+        <strong>${escapeHtml(secondary.label)}</strong>
+        <p>${escapeHtml(secondary.summary)}</p>
+      </div>
+    </div>
+    <div class="compare-table">
+      <div class="compare-row compare-head">
+        <span>Dimension</span>
+        <span>${escapeHtml(primary.label)}</span>
+        <span>${escapeHtml(secondary.label)}</span>
+      </div>
+      ${rows.map((row) => `
+        <div class="compare-row">
+          <span class="compare-label">${escapeHtml(row.label)}</span>
+          <span>${renderCompareValue(row.left)}</span>
+          <span>${renderCompareValue(row.right)}</span>
+        </div>
+      `).join("")}
+    </div>
+    <p class="action-note">
+      This MVP comparison reads the two selected RPC targets directly and focuses on high-value top-level signals.
+      It is not a full configuration diff or historical analysis engine.
+    </p>
+  `;
+}
+
+function renderCompareValue(value) {
+  return value === ""
+    ? "Unavailable"
+    : escapeHtml(value);
+}
+
+function buildCompareView(record, result) {
+  if (result.status === "error") {
+    return {
+      label: record.label,
+      source: instanceSourceLabel(record.sourceType),
+      network: record.metadata.networkLabel || inferNetworkLabelFromRpc(record.config.rpcUrl),
+      rpcStatus: "Unavailable",
+      governorAddress: shortenAddress(record.config.addresses.governanceGovernor),
+      timelockAddress: shortenAddress(record.config.addresses.governanceTimelock),
+      controlPosture: record.metadata.roleMode || "Unavailable",
+      votingDelay: "",
+      votingPeriod: "",
+      proposalThreshold: "",
+      timelockDelay: "",
+      treasuryCustody: "",
+      availableOperating: "",
+      bucketSummary: `${record.config.trackedBuckets.length} tracked / unavailable live read`,
+      distributorOutstanding: "",
+      activeDistributions: "",
+      distributionSummary: `${record.config.trackedDistributions.length} tracked / unavailable live read`,
+      proposalCount: "",
+      tone: "warning",
+      summary: result.error,
+    };
+  }
+
+  const state = result.state;
+  const roleView = deriveRoleView(state);
+  const activeDistributions = state.distributor.distributions.filter((distribution) =>
+    distribution.status === "loaded" && distribution.stateCode === 1
+  ).length;
+  const loadedBuckets = state.treasury.buckets.filter((bucket) => bucket.status === "loaded").length;
+  const loadedDistributions = state.distributor.distributions.filter((distribution) =>
+    distribution.status === "loaded"
+  ).length;
+
+  return {
+    label: record.label,
+    source: instanceSourceLabel(record.sourceType),
+    network: chainLabel(state.rpcChainId),
+    rpcStatus: "Live read ok",
+    governorAddress: shortenAddress(state.addresses.governanceGovernor),
+    timelockAddress: shortenAddress(state.addresses.governanceTimelock),
+    controlPosture: roleView.modeLabel,
+    votingDelay: state.governance.votingDelay.toString(),
+    votingPeriod: state.governance.votingPeriod.toString(),
+    proposalThreshold: formatEth(state.governance.proposalThreshold),
+    timelockDelay: formatSeconds(state.governance.timelockMinDelay),
+    treasuryCustody: formatEth(state.treasury.totalBalance),
+    availableOperating: formatEth(state.treasury.availableOperating),
+    bucketSummary: `${loadedBuckets} / ${state.treasury.buckets.length}`,
+    distributorOutstanding: formatEth(state.distributor.totalOutstanding),
+    activeDistributions: activeDistributions.toString(),
+    distributionSummary: `${loadedDistributions} / ${state.distributor.distributions.length}`,
+    proposalCount: state.governance.proposalCount.toString(),
+    tone: roleView.modeTone,
+    summary: `${roleView.modeLabel}. Treasury holds ${formatEth(state.treasury.totalBalance)} and distributor outstanding is ${formatEth(state.distributor.totalOutstanding)}.`,
+  };
+}
+
+async function loadCompareTarget(record) {
+  try {
+    const state = await loadDashboardState(record.config);
+    return {
+      status: "success",
+      state,
+    };
+  } catch (error) {
+    return {
+      status: "error",
+      error: toMessage(error),
+    };
+  }
 }
 
 async function handleCopyLaunchEnv() {
@@ -1092,6 +1517,95 @@ function renderHealth(state) {
   `;
 }
 
+function renderOpsAdmin(state) {
+  if (state === null) {
+    opsPanel.innerHTML = emptyState("Refresh the dashboard to load the operator-facing status view.");
+    return;
+  }
+
+  const opsView = deriveOpsAdminView(state);
+
+  opsPanel.innerHTML = `
+    <div class="roles-overview">
+      <div class="role-status-card" data-mode="${escapeHtml(opsView.postureTone)}">
+        <span class="eyebrow">Control status</span>
+        <strong>${escapeHtml(opsView.postureLabel)}</strong>
+        <p>${escapeHtml(opsView.postureDetail)}</p>
+      </div>
+      <div class="role-status-card" data-mode="${escapeHtml(opsView.treasuryTone)}">
+        <span class="eyebrow">Treasury operations</span>
+        <strong>${escapeHtml(opsView.treasuryLabel)}</strong>
+        <p>${escapeHtml(opsView.treasuryDetail)}</p>
+      </div>
+      <div class="role-status-card" data-mode="${escapeHtml(opsView.distributorTone)}">
+        <span class="eyebrow">Distributor operations</span>
+        <strong>${escapeHtml(opsView.distributorLabel)}</strong>
+        <p>${escapeHtml(opsView.distributorDetail)}</p>
+      </div>
+    </div>
+    <div class="panel-grid compact">
+      ${metricCard("Timelock owner path", opsView.ownerPath)}
+      ${metricCard("Available operating", formatEth(state.treasury.availableOperating))}
+      ${metricCard("Outstanding claims", formatEth(state.distributor.totalOutstanding))}
+      ${metricCard("Active distributions", opsView.activeDistributionCount)}
+      ${metricCard("Tracked buckets", opsView.bucketSummary)}
+      ${metricCard("Queued or ready proposals", opsView.queueSummary)}
+    </div>
+    <div class="actions-layout">
+      <div class="action-card">
+        <h3>Available Now</h3>
+        <div class="history-feed">
+          ${opsView.availableActions.map((action) => `
+            <article class="history-item proposal-card" data-tone="${escapeHtml(action.tone)}">
+              <div class="history-head">
+                <span class="history-pill" data-category="${escapeHtml(action.category)}">${escapeHtml(action.categoryLabel)}</span>
+                <span class="role-badge" data-tone="${escapeHtml(action.tone)}">${escapeHtml(action.status)}</span>
+              </div>
+              <strong class="history-title">${escapeHtml(action.label)}</strong>
+              <p class="history-detail">${escapeHtml(action.detail)}</p>
+            </article>
+          `).join("")}
+        </div>
+      </div>
+      <div class="action-card">
+        <h3>Warnings And Blockers</h3>
+        ${opsView.warnings.length === 0
+          ? `<p class="action-copy">${escapeHtml(opsView.clearMessage)}</p>`
+          : `
+            <ul class="notes-list">
+              ${opsView.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}
+            </ul>
+          `}
+      </div>
+      <div class="action-card">
+        <h3>Intentionally Not Exposed</h3>
+        <ul class="notes-list">
+          ${opsView.withheldActions.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+        </ul>
+      </div>
+    </div>
+  `;
+}
+
+function renderSandboxMode(state) {
+  hydrateSandboxSelectors(state);
+
+  if (state === null) {
+    sandboxStatusBanner.dataset.tone = "loading";
+    sandboxStatusBanner.textContent = "Sandbox mode is waiting for live dashboard state. Refresh the dashboard first, then experiment with preview-only scenarios.";
+    sandboxTreasuryPreview.innerHTML = "Refresh the dashboard to preview hypothetical treasury changes.";
+    sandboxDistributorPreview.innerHTML = "Refresh the dashboard to preview hypothetical distribution changes.";
+    sandboxGovernancePreview.innerHTML = "Refresh the dashboard to preview the current governance lifecycle timing.";
+    return;
+  }
+
+  sandboxStatusBanner.dataset.tone = "success";
+  sandboxStatusBanner.textContent = "Sandbox mode is using the current live dashboard state as its starting point. These results are simulated and do not send transactions.";
+  renderSandboxTreasuryPreview(state);
+  renderSandboxDistributorPreview(state);
+  renderSandboxGovernancePreview(state);
+}
+
 function renderTreasury(treasury) {
   treasuryPanel.innerHTML = `
     <div class="panel-grid">
@@ -1164,6 +1678,130 @@ function renderBuckets(buckets) {
       });
     });
   });
+}
+
+function renderBudgetRunway(state) {
+  const buckets = latestConfig?.trackedBuckets ?? [];
+  const previousSelection = runwayForm.bucketId.value;
+
+  runwayForm.bucketId.innerHTML = buckets.length === 0
+    ? '<option value="">No tracked buckets configured</option>'
+    : buckets.map((bucket) => `
+      <option value="${escapeHtml(bucket.id)}">${escapeHtml(bucket.label)}</option>
+    `).join("");
+
+  runwayForm.bucketId.value = buckets.some((bucket) => bucket.id === previousSelection)
+    ? previousSelection
+    : buckets[0]?.id ?? "";
+
+  if (state === null) {
+    runwayPanel.innerHTML = emptyState(
+      "Refresh the dashboard to forecast runway from the current treasury bucket state.",
+    );
+    return;
+  }
+
+  try {
+    const runwayView = deriveBudgetRunwayView(state);
+
+    runwayPanel.innerHTML = `
+      <div class="history-item proposal-card" data-tone="${escapeHtml(runwayView.tone)}">
+        <div class="history-head">
+          <span class="history-pill" data-category="treasury">Forecast</span>
+          <span class="role-badge" data-tone="${escapeHtml(runwayView.tone)}">${escapeHtml(runwayView.label)}</span>
+        </div>
+        <strong class="history-title">${escapeHtml(runwayView.title)}</strong>
+        <p class="history-detail">${escapeHtml(runwayView.detail)}</p>
+        <div class="panel-grid compact">
+          ${metricCard("Actual allocated", runwayView.allocated)}
+          ${metricCard("Actual spent", runwayView.spent)}
+          ${metricCard("Actual remaining", runwayView.remaining)}
+          ${metricCard("Spent ratio", runwayView.spentRatio)}
+          ${metricCard("Assumed monthly burn", runwayView.assumedBurn)}
+          ${metricCard("Estimated runway", runwayView.estimatedRunway)}
+        </div>
+        <ul class="notes-list compact-list">
+          ${runwayView.notes.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+        </ul>
+      </div>
+    `;
+  } catch (error) {
+    runwayPanel.innerHTML = escapeHtml(toMessage(error));
+  }
+}
+
+function renderDistributionCampaignSetup(state) {
+  const trackedDistributions = latestConfig?.trackedDistributions ?? [];
+  const previousSelection = distributionCampaignForm.distributionId.value;
+
+  distributionCampaignForm.distributionId.innerHTML = trackedDistributions.length === 0
+    ? '<option value="">No tracked distributions configured</option>'
+    : trackedDistributions.map((distribution) => `
+      <option value="${escapeHtml(distribution.id)}">${escapeHtml(distribution.label)}</option>
+    `).join("");
+
+  distributionCampaignForm.distributionId.value = trackedDistributions.some(
+    (distribution) => distribution.id === previousSelection,
+  )
+    ? previousSelection
+    : trackedDistributions[0]?.id ?? "";
+
+  if (trackedDistributions.length === 0) {
+    distributionCampaignPanel.innerHTML = emptyState(
+      "Add or import at least one tracked distribution id before preparing a campaign setup flow.",
+    );
+    return;
+  }
+
+  try {
+    const campaignView = deriveDistributionCampaignView(state);
+
+    distributionCampaignPanel.innerHTML = `
+      <div class="history-item proposal-card" data-tone="${escapeHtml(campaignView.tone)}">
+        <div class="history-head">
+          <span class="history-pill" data-category="distribution">Campaign</span>
+          <span class="role-badge" data-tone="${escapeHtml(campaignView.tone)}">${escapeHtml(campaignView.label)}</span>
+        </div>
+        <strong class="history-title">${escapeHtml(campaignView.title)}</strong>
+        <p class="history-detail">${escapeHtml(campaignView.detail)}</p>
+        <div class="panel-grid compact">
+          ${metricCard("Distribution id", campaignView.distributionId)}
+          ${metricCard("Total amount", campaignView.totalAmount)}
+          ${metricCard("Planned initial funding", campaignView.initialFunding)}
+          ${metricCard("Unfunded remainder", campaignView.unfundedRemainder)}
+          ${metricCard("Recipient count", campaignView.recipientCount)}
+          ${metricCard("Claim model", campaignView.claimModel)}
+        </div>
+        <div class="actions-layout campaign-setup-layout">
+          <div class="action-card">
+            <h3>Required Inputs</h3>
+            <ul class="notes-list compact-list">
+              ${campaignView.requiredInputs.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+            </ul>
+          </div>
+          <div class="action-card">
+            <h3>Funding Relationship</h3>
+            <ul class="notes-list compact-list">
+              ${campaignView.fundingNotes.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+            </ul>
+          </div>
+          <div class="action-card">
+            <h3>What Is Supported Now</h3>
+            <ul class="notes-list compact-list">
+              ${campaignView.supportNotes.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+            </ul>
+          </div>
+        </div>
+        <div class="callout-block">
+          <strong>Proof and claim tooling</strong>
+          <pre class="code-block">${escapeHtml(campaignView.toolingCommand)}</pre>
+          <p class="action-copy">${escapeHtml(campaignView.toolingDetail)}</p>
+        </div>
+      </div>
+    `;
+  } catch (error) {
+    distributionCampaignPanel.innerHTML = escapeHtml(toMessage(error));
+  }
 }
 
 function renderDistributor(distributor) {
@@ -1283,6 +1921,81 @@ function renderRoles(state) {
           </div>
         </article>
       `).join("")}
+    </div>
+  `;
+}
+
+function renderGovernanceAnalytics(state) {
+  if (state === null) {
+    governanceAnalyticsPanel.innerHTML = emptyState(
+      "Refresh the dashboard to load governance activity and participation signals.",
+    );
+    return;
+  }
+
+  const analytics = deriveGovernanceAnalyticsView(state);
+
+  governanceAnalyticsPanel.innerHTML = `
+    <div class="roles-overview">
+      <div class="role-status-card" data-mode="success">
+        <span class="eyebrow">Proposal activity</span>
+        <strong>${escapeHtml(analytics.activityLabel)}</strong>
+        <p>${escapeHtml(analytics.activityDetail)}</p>
+      </div>
+      <div class="role-status-card" data-mode="${escapeHtml(analytics.participationTone)}">
+        <span class="eyebrow">Participation proxy</span>
+        <strong>${escapeHtml(analytics.participationLabel)}</strong>
+        <p>${escapeHtml(analytics.participationDetail)}</p>
+      </div>
+      <div class="role-status-card" data-mode="${escapeHtml(analytics.executionTone)}">
+        <span class="eyebrow">Queue and execution</span>
+        <strong>${escapeHtml(analytics.executionLabel)}</strong>
+        <p>${escapeHtml(analytics.executionDetail)}</p>
+      </div>
+    </div>
+    <div class="panel-grid compact">
+      ${metricCard("Proposal count", analytics.proposalCount)}
+      ${metricCard("Active", analytics.stateCounts.active)}
+      ${metricCard("Queued", analytics.stateCounts.queued)}
+      ${metricCard("Executed", analytics.stateCounts.executed)}
+      ${metricCard("Defeated", analytics.stateCounts.defeated)}
+      ${metricCard("Canceled", analytics.stateCounts.canceled)}
+      ${metricCard("Proposals with votes", analytics.proposalsWithVotes)}
+      ${metricCard("Average recorded votes", analytics.averageVotes)}
+      ${metricCard("Peak recorded votes", analytics.peakVotes)}
+    </div>
+    <div class="actions-layout">
+      <div class="action-card">
+        <h3>Proposal State Mix</h3>
+        <ul class="notes-list">
+          ${analytics.stateMix.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+        </ul>
+      </div>
+      <div class="action-card">
+        <h3>Recent Proposal Activity</h3>
+        ${analytics.recentActivity.length === 0
+          ? `<p class="action-copy">No proposals have been created on this deployment yet.</p>`
+          : `
+            <div class="history-feed">
+              ${analytics.recentActivity.map((item) => `
+                <article class="history-item proposal-card" data-tone="${escapeHtml(item.tone)}">
+                  <div class="history-head">
+                    <span class="history-pill" data-category="governance">${escapeHtml(item.badge)}</span>
+                    <span class="role-badge" data-tone="${escapeHtml(item.tone)}">${escapeHtml(item.stateLabel)}</span>
+                  </div>
+                  <strong class="history-title">${escapeHtml(item.title)}</strong>
+                  <p class="history-detail">${escapeHtml(item.detail)}</p>
+                </article>
+              `).join("")}
+            </div>
+          `}
+      </div>
+      <div class="action-card">
+        <h3>How To Read This</h3>
+        <ul class="notes-list">
+          ${analytics.notes.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+        </ul>
+      </div>
     </div>
   `;
 }
@@ -1967,6 +2680,247 @@ function renderTreasuryActionForm(state) {
   }
 }
 
+function hydrateSandboxSelectors(state) {
+  const buckets = latestConfig?.trackedBuckets ?? [];
+  const previousBucket = sandboxTreasuryForm.bucketId.value;
+
+  sandboxTreasuryForm.bucketId.innerHTML = buckets.length === 0
+    ? '<option value="">No tracked buckets configured</option>'
+    : buckets.map((bucket) => `
+      <option value="${escapeHtml(bucket.id)}">${escapeHtml(bucket.label)}</option>
+    `).join("");
+
+  sandboxTreasuryForm.bucketId.value = buckets.some((bucket) => bucket.id === previousBucket)
+    ? previousBucket
+    : buckets[0]?.id ?? "";
+
+  const previousDistribution = sandboxDistributorForm.distributionId.value;
+  const trackedDistributions = latestConfig?.trackedDistributions ?? [];
+
+  sandboxDistributorForm.distributionId.innerHTML = trackedDistributions.length === 0
+    ? '<option value="">No tracked distributions configured</option>'
+    : trackedDistributions.map((distribution) => {
+      const liveDistribution = state?.distributor.distributions.find((item) => item.id === distribution.id);
+      const status = liveDistribution === undefined || liveDistribution.status !== "loaded"
+        ? "unloaded"
+        : distributionStatus(liveDistribution.stateCode).toLowerCase();
+
+      return `
+        <option value="${escapeHtml(distribution.id)}">
+          ${escapeHtml(distribution.label)} (${escapeHtml(status)})
+        </option>
+      `;
+    }).join("");
+
+  sandboxDistributorForm.distributionId.value = trackedDistributions.some((distribution) =>
+    distribution.id === previousDistribution
+  )
+    ? previousDistribution
+    : trackedDistributions[0]?.id ?? "";
+}
+
+function renderSandboxTreasuryPreview(state) {
+  try {
+    const amountWei = parseEthAmount(sandboxTreasuryForm.amountEth.value);
+
+    if (amountWei <= 0n) {
+      throw new Error("Sandbox treasury amount must be greater than zero.");
+    }
+
+    const actionKey = sandboxTreasuryForm.actionKey.value;
+    const bucket = state.treasury.buckets.find((item) => item.id === sandboxTreasuryForm.bucketId.value);
+    let tone = "success";
+    let title = "";
+    let detail = "";
+    let liveCards = "";
+    let simulatedCards = "";
+
+    if (actionKey === "classify") {
+      if (amountWei > state.treasury.unallocated) {
+        throw new Error("This preview would classify more capital than is currently unallocated.");
+      }
+
+      title = "Simulated operating classification";
+      detail = `This preview classifies ${formatEth(amountWei)} from unallocated custody into operating capital.`;
+      liveCards = [
+        metricCard("Live unallocated", formatEth(state.treasury.unallocated)),
+        metricCard("Live operating", formatEth(state.treasury.operating)),
+      ].join("");
+      simulatedCards = [
+        metricCard("Simulated unallocated", formatEth(state.treasury.unallocated - amountWei)),
+        metricCard("Simulated operating", formatEth(state.treasury.operating + amountWei)),
+      ].join("");
+    } else if (actionKey === "allocate") {
+      if (bucket === undefined || bucket.status !== "loaded") {
+        throw new Error("Choose a loaded tracked bucket for this sandbox preview.");
+      }
+      if (amountWei > state.treasury.availableOperating) {
+        throw new Error("This preview would allocate more than the currently available operating capital.");
+      }
+
+      title = "Simulated bucket allocation";
+      detail = `This preview allocates ${formatEth(amountWei)} to ${bucket.label}. In the current MVP, a first allocation is effectively what makes a bucket active.`;
+      liveCards = [
+        metricCard("Live available operating", formatEth(state.treasury.availableOperating)),
+        metricCard("Live bucket remaining", formatEth(bucket.remaining)),
+      ].join("");
+      simulatedCards = [
+        metricCard("Simulated available operating", formatEth(state.treasury.availableOperating - amountWei)),
+        metricCard("Simulated bucket remaining", formatEth(bucket.remaining + amountWei)),
+      ].join("");
+    } else {
+      if (bucket === undefined || bucket.status !== "loaded") {
+        throw new Error("Choose a loaded tracked bucket for this sandbox preview.");
+      }
+      if (amountWei > bucket.remaining) {
+        throw new Error("This preview would spend more than the bucket currently has remaining.");
+      }
+
+      title = "Simulated bucket spend";
+      detail = `This preview spends ${formatEth(amountWei)} from ${bucket.label} and reduces live treasury custody by the same amount.`;
+      tone = amountWei === bucket.remaining ? "warning" : "success";
+      liveCards = [
+        metricCard("Live treasury custody", formatEth(state.treasury.totalBalance)),
+        metricCard("Live bucket remaining", formatEth(bucket.remaining)),
+      ].join("");
+      simulatedCards = [
+        metricCard("Simulated treasury custody", formatEth(state.treasury.totalBalance - amountWei)),
+        metricCard("Simulated bucket remaining", formatEth(bucket.remaining - amountWei)),
+      ].join("");
+    }
+
+    sandboxTreasuryPreview.innerHTML = `
+      <div class="history-item proposal-card" data-tone="${escapeHtml(tone)}">
+        <div class="history-head">
+          <span class="history-pill" data-category="treasury">Simulated</span>
+          <span class="role-badge" data-tone="${escapeHtml(tone)}">${tone === "success" ? "Within current bounds" : "High impact"}</span>
+        </div>
+        <strong class="history-title">${escapeHtml(title)}</strong>
+        <p class="history-detail">${escapeHtml(detail)}</p>
+        <div class="panel-grid compact">${liveCards}</div>
+        <div class="panel-grid compact">${simulatedCards}</div>
+      </div>
+    `;
+  } catch (error) {
+    sandboxTreasuryPreview.innerHTML = escapeHtml(toMessage(error));
+  }
+}
+
+function renderSandboxDistributorPreview(state) {
+  try {
+    const amountWei = parseEthAmount(sandboxDistributorForm.amountEth.value);
+
+    if (amountWei <= 0n) {
+      throw new Error("Sandbox distributor amount must be greater than zero.");
+    }
+
+    const distribution = state.distributor.distributions.find(
+      (item) => item.id === sandboxDistributorForm.distributionId.value,
+    );
+
+    if (distribution === undefined || distribution.status !== "loaded") {
+      throw new Error("Choose a loaded tracked distribution for this sandbox preview.");
+    }
+
+    const remaining = distribution.fundedAmount - distribution.claimedAmount;
+    const actionKey = sandboxDistributorForm.actionKey.value;
+    let title = "";
+    let detail = "";
+    let tone = "success";
+    let simulatedFunded = distribution.fundedAmount;
+    let simulatedClaimed = distribution.claimedAmount;
+
+    if (actionKey === "fund") {
+      if (distribution.fundedAmount + amountWei > distribution.totalAmount) {
+        throw new Error("This preview would fund the event beyond its declared total amount.");
+      }
+
+      title = "Simulated distribution funding";
+      detail = `This preview adds ${formatEth(amountWei)} of funding to ${distribution.label}.`;
+      simulatedFunded = distribution.fundedAmount + amountWei;
+    } else {
+      if (distribution.stateCode !== 1) {
+        throw new Error("This preview can only claim against a currently active distribution.");
+      }
+      if (amountWei > remaining) {
+        throw new Error("This preview would claim more than the distribution currently has remaining.");
+      }
+
+      title = "Simulated distribution claim";
+      detail = `This preview claims ${formatEth(amountWei)} from ${distribution.label}.`;
+      tone = amountWei === remaining ? "warning" : "success";
+      simulatedClaimed = distribution.claimedAmount + amountWei;
+    }
+
+    const simulatedRemaining = simulatedFunded - simulatedClaimed;
+
+    sandboxDistributorPreview.innerHTML = `
+      <div class="history-item proposal-card" data-tone="${escapeHtml(tone)}">
+        <div class="history-head">
+          <span class="history-pill" data-category="distribution">Simulated</span>
+          <span class="role-badge" data-tone="${escapeHtml(tone)}">${tone === "success" ? "Within current bounds" : "Full-state change"}</span>
+        </div>
+        <strong class="history-title">${escapeHtml(title)}</strong>
+        <p class="history-detail">${escapeHtml(detail)}</p>
+        <div class="panel-grid compact">
+          ${metricCard("Live funded", formatEth(distribution.fundedAmount))}
+          ${metricCard("Live claimed", formatEth(distribution.claimedAmount))}
+          ${metricCard("Live remaining", formatEth(remaining))}
+        </div>
+        <div class="panel-grid compact">
+          ${metricCard("Simulated funded", formatEth(simulatedFunded))}
+          ${metricCard("Simulated claimed", formatEth(simulatedClaimed))}
+          ${metricCard("Simulated remaining", formatEth(simulatedRemaining))}
+        </div>
+      </div>
+    `;
+  } catch (error) {
+    sandboxDistributorPreview.innerHTML = escapeHtml(toMessage(error));
+  }
+}
+
+function renderSandboxGovernancePreview(state) {
+  const walletReady = walletState.available && walletState.account !== null && walletMatchesDashboardChain();
+  const enoughVotes = latestWalletVotes >= state.governance.proposalThreshold;
+  const createdAtBlock = state.governance.currentBlockNumber;
+  const votingDelay = Number(state.governance.votingDelay);
+  const votingPeriod = Number(state.governance.votingPeriod);
+  const timelockDelaySeconds = Number(state.governance.timelockMinDelay);
+  const activeAtBlock = createdAtBlock + votingDelay;
+  const endsAtBlock = activeAtBlock + votingPeriod;
+  const earliestExecutionAt = state.governance.currentTimestamp + timelockDelaySeconds;
+
+  sandboxGovernancePreview.innerHTML = `
+    <div class="history-item proposal-card" data-tone="${escapeHtml(walletReady && enoughVotes ? "success" : "warning")}">
+      <div class="history-head">
+        <span class="history-pill" data-category="governance">Simulated</span>
+        <span class="role-badge" data-tone="${escapeHtml(walletReady && enoughVotes ? "success" : "warning")}">
+          ${walletReady && enoughVotes ? "Wallet could propose" : "Read-first preview"}
+        </span>
+      </div>
+      <strong class="history-title">If a proposal were created now</strong>
+      <p class="history-detail">
+        This preview uses the current governor voting delay, voting period, and timelock delay. It does not submit a proposal or predict voting outcomes.
+      </p>
+      <div class="panel-grid compact">
+        ${metricCard("Current block", createdAtBlock.toString())}
+        ${metricCard("Voting starts", `Block ${activeAtBlock.toString()}`)}
+        ${metricCard("Voting ends", `Block ${endsAtBlock.toString()}`)}
+        ${metricCard("Earliest execution", formatOptionalMoment(earliestExecutionAt))}
+      </div>
+      <ul class="notes-list compact-list">
+        <li>${escapeHtml(walletReady
+          ? enoughVotes
+            ? "This connected wallet appears to meet the current proposal threshold, so a real proposal could be submitted from the live governance panel."
+            : "This connected wallet does not appear to meet the current proposal threshold, so this remains a timing preview only."
+          : "This is still useful as a timeline preview, but real proposal actions require a connected wallet on the same chain.")}</li>
+        <li>Queueing still depends on the proposal succeeding.</li>
+        <li>Execution still depends on queueing and the timelock delay elapsing.</li>
+      </ul>
+    </div>
+  `;
+}
+
 function hydrateClaimSelector(config, state) {
   const previousSelection = claimDistributionSelect.value;
 
@@ -2057,11 +3011,18 @@ function buildTreasuryActionDraft(state) {
 
 function clearPanels() {
   healthPanel.innerHTML = "";
+  opsPanel.innerHTML = "";
+  sandboxTreasuryPreview.innerHTML = "";
+  sandboxDistributorPreview.innerHTML = "";
+  sandboxGovernancePreview.innerHTML = "";
   summaryPanel.innerHTML = "";
   treasuryPanel.innerHTML = "";
   bucketsPanel.innerHTML = "";
+  runwayPanel.innerHTML = "";
+  distributionCampaignPanel.innerHTML = "";
   distributorPanel.innerHTML = "";
   rolesPanel.innerHTML = "";
+  governanceAnalyticsPanel.innerHTML = "";
   governancePanel.innerHTML = "";
   timelockPanel.innerHTML = "";
   historyPanel.innerHTML = "";
@@ -2093,6 +3054,11 @@ function setInstanceStatus(message, tone) {
   instanceStatusBanner.dataset.tone = tone;
 }
 
+function setCompareStatus(message, tone) {
+  compareStatusBanner.textContent = message;
+  compareStatusBanner.dataset.tone = tone;
+}
+
 function loadStoredInstanceRegistry() {
   const raw = window.localStorage.getItem(INSTANCE_REGISTRY_STORAGE_KEY);
 
@@ -2117,6 +3083,38 @@ function loadStoredInstanceRegistry() {
 
 function storeInstanceRegistry(registry) {
   window.localStorage.setItem(INSTANCE_REGISTRY_STORAGE_KEY, JSON.stringify(registry));
+}
+
+function loadStoredInstanceCompareSelection() {
+  const raw = window.localStorage.getItem(INSTANCE_COMPARE_STORAGE_KEY);
+
+  if (raw === null) {
+    return {
+      primaryInstanceId: "",
+      secondaryInstanceId: "",
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+
+    return {
+      primaryInstanceId: normalizeMaybeText(parsed?.primaryInstanceId, ""),
+      secondaryInstanceId: normalizeMaybeText(parsed?.secondaryInstanceId, ""),
+    };
+  } catch {
+    return {
+      primaryInstanceId: "",
+      secondaryInstanceId: "",
+    };
+  }
+}
+
+function storeInstanceCompareSelection(selection) {
+  window.localStorage.setItem(
+    INSTANCE_COMPARE_STORAGE_KEY,
+    JSON.stringify(selection),
+  );
 }
 
 function loadStoredDeployerConfig() {
@@ -2998,6 +3996,380 @@ function deriveRoleView(state) {
           : "Execution authority is not currently aligned with the configured governor.",
       }),
     ],
+  };
+}
+
+function deriveOpsAdminView(state) {
+  const roleView = deriveRoleView(state);
+  const healthView = deriveHealthView(state);
+  const walletReady = walletState.available &&
+    walletState.account !== null &&
+    walletMatchesDashboardChain();
+  const treasuryPermission = describeTreasuryProposalPermission(state);
+  const activeDistributions = state.distributor.distributions.filter((distribution) =>
+    distribution.status === "loaded" && distribution.stateCode === 1
+  );
+  const claimableDistributions = activeDistributions.filter((distribution) =>
+    distribution.fundedAmount - distribution.claimedAmount > 0n
+  );
+  const loadedBuckets = state.treasury.buckets.filter((bucket) => bucket.status === "loaded");
+  const queueableCount = state.governance.proposals.filter((proposal) => proposal.stateCode === 3).length;
+  const executableCount = state.governance.proposals.filter((proposal) =>
+    proposal.stateCode === 4 &&
+    proposal.earliestExecutionTimestamp !== null &&
+    state.governance.currentTimestamp >= proposal.earliestExecutionTimestamp
+  ).length;
+
+  let treasuryLabel = "Treasury is funded and readable";
+  let treasuryTone = "success";
+  let treasuryDetail = `Treasury custody is ${formatEth(state.treasury.totalBalance)} with ${formatEth(state.treasury.availableOperating)} still available for operating allocation.`;
+
+  if (state.treasury.totalBalance === 0n) {
+    treasuryLabel = "Treasury is deployed but unfunded";
+    treasuryTone = "warning";
+    treasuryDetail = "Capital custody is still empty, so treasury policy flows are visible but not yet economically meaningful.";
+  } else if (state.treasury.availableOperating === 0n && state.treasury.operating > 0n) {
+    treasuryLabel = "Operating capital is fully committed";
+    treasuryTone = "warning";
+    treasuryDetail = "The treasury still holds funds, but tracked operating capital is already committed into buckets or spent down.";
+  }
+
+  let distributorLabel = "Distribution flow is live";
+  let distributorTone = "success";
+  let distributorDetail = claimableDistributions.length > 0
+    ? `${claimableDistributions.length} tracked distribution event${claimableDistributions.length === 1 ? "" : "s"} still has claimable funding.`
+    : "Distributor events are readable, but there is no currently claimable tracked event.";
+
+  if (activeDistributions.length === 0) {
+    distributorLabel = "No active tracked distributions";
+    distributorTone = "warning";
+    distributorDetail = "The distributor is deployed, but the current tracked set does not include an active funded event.";
+  } else if (claimableDistributions.length === 0) {
+    distributorTone = "warning";
+  }
+
+  const availableActions = [
+    {
+      category: "treasury",
+      categoryLabel: "Treasury",
+      label: "Fund treasury custody",
+      status: walletReady ? "Available" : "Blocked",
+      tone: walletReady ? "success" : "warning",
+      detail: walletReady
+        ? "A connected wallet on the same chain can send ETH directly into treasury custody now."
+        : walletExplanation(walletMatchesDashboardChain()),
+    },
+    {
+      category: "governance",
+      categoryLabel: "Governance",
+      label: "Submit treasury proposal",
+      status: treasuryPermission.canSubmit ? "Available" : "Blocked",
+      tone: treasuryPermission.canSubmit ? "success" : "warning",
+      detail: treasuryPermission.detail,
+    },
+    {
+      category: "distribution",
+      categoryLabel: "Distributor",
+      label: "Claim tracked distribution",
+      status: walletReady && claimableDistributions.length > 0 ? "Available" : "Blocked",
+      tone: walletReady && claimableDistributions.length > 0 ? "success" : "warning",
+      detail: claimableDistributions.length > 0
+        ? (walletReady
+          ? "A connected claimant can use the current self-claim path for one tracked funded event."
+          : "A claimable tracked event exists, but the wallet must be connected on the same chain before claiming.")
+        : "No tracked distribution currently has remaining claimable funding.",
+    },
+    {
+      category: "governance",
+      categoryLabel: "Governance",
+      label: "Advance queued governance work",
+      status: walletReady && (queueableCount > 0 || executableCount > 0) ? "Available" : "Review",
+      tone: walletReady && (queueableCount > 0 || executableCount > 0) ? "success" : "warning",
+      detail: executableCount > 0
+        ? `${executableCount} queued proposal${executableCount === 1 ? "" : "s"} appears ready for execution now.`
+        : queueableCount > 0
+          ? `${queueableCount} succeeded proposal${queueableCount === 1 ? "" : "s"} is ready to be queued into the timelock.`
+          : "No tracked proposal is currently at a queue-ready or execution-ready stage.",
+    },
+  ];
+
+  return {
+    postureLabel: roleView.modeLabel,
+    postureTone: roleView.modeTone,
+    postureDetail: `${roleView.modeDetail} ${roleView.pathDetail}`,
+    treasuryLabel,
+    treasuryTone,
+    treasuryDetail,
+    distributorLabel,
+    distributorTone,
+    distributorDetail,
+    ownerPath: roleView.pathTone === "success" ? "Governor -> Timelock -> Modules" : "Needs review",
+    activeDistributionCount: activeDistributions.length.toString(),
+    bucketSummary: `${loadedBuckets.length} / ${state.treasury.buckets.length}`,
+    queueSummary: executableCount > 0
+      ? `${executableCount} executable`
+      : queueableCount > 0
+        ? `${queueableCount} queueable`
+        : "None ready",
+    availableActions,
+    warnings: healthView.warnings,
+    clearMessage: "No obvious operator blockers stand out right now. The current instance looks coherent enough to inspect and operate through the narrow MVP flows.",
+    withheldActions: [
+      "Direct owner-admin buttons for treasury classification, distributor funding, or timelock role changes are intentionally not exposed after handoff.",
+      "This UI does not expose arbitrary calldata execution or broad admin scripting. Governance proposals stay narrow and reviewable on purpose.",
+      "Tracked buckets and distribution events still come from configured ids because the current contracts do not enumerate them on-chain.",
+    ],
+  };
+}
+
+function deriveGovernanceAnalyticsView(state) {
+  const proposals = state.governance.proposals;
+  const counts = {
+    pending: 0,
+    active: 0,
+    defeated: 0,
+    succeeded: 0,
+    queued: 0,
+    executed: 0,
+    canceled: 0,
+    unknown: 0,
+  };
+
+  let totalRecordedVotes = 0n;
+  let peakRecordedVotes = 0n;
+  let proposalsWithVotes = 0;
+
+  for (const proposal of proposals) {
+    const recordedVotes = proposal.forVotes + proposal.againstVotes + proposal.abstainVotes;
+
+    if (proposal.stateCode === 0) {
+      counts.pending += 1;
+    } else if (proposal.stateCode === 1) {
+      counts.active += 1;
+    } else if (proposal.stateCode === 2) {
+      counts.defeated += 1;
+    } else if (proposal.stateCode === 3) {
+      counts.succeeded += 1;
+    } else if (proposal.stateCode === 4) {
+      counts.queued += 1;
+    } else if (proposal.stateCode === 5) {
+      counts.executed += 1;
+    } else if (proposal.stateCode === 6) {
+      counts.canceled += 1;
+    } else {
+      counts.unknown += 1;
+    }
+
+    totalRecordedVotes += recordedVotes;
+    if (recordedVotes > 0n) {
+      proposalsWithVotes += 1;
+    }
+    if (recordedVotes > peakRecordedVotes) {
+      peakRecordedVotes = recordedVotes;
+    }
+  }
+
+  const averageRecordedVotes = proposals.length === 0
+    ? 0n
+    : totalRecordedVotes / BigInt(proposals.length);
+  const queueOrExecutionCount = counts.queued + counts.executed + counts.succeeded;
+
+  return {
+    proposalCount: state.governance.proposalCount.toString(),
+    activityLabel: proposals.length === 0
+      ? "No proposal activity yet"
+      : `${proposals.length} proposal${proposals.length === 1 ? "" : "s"} recorded`,
+    activityDetail: proposals.length === 0
+      ? "This deployment has not created any governance proposals yet."
+      : `${counts.active} active, ${counts.queued} queued, and ${counts.executed} executed proposal${counts.executed === 1 ? "" : "s"} are currently visible.`,
+    participationTone: proposalsWithVotes > 0 ? "success" : "warning",
+    participationLabel: proposalsWithVotes === 0
+      ? "No recorded voting yet"
+      : `${proposalsWithVotes} proposal${proposalsWithVotes === 1 ? "" : "s"} has recorded votes`,
+    participationDetail: proposalsWithVotes === 0
+      ? "The governor is readable, but the current proposal set does not yet show any recorded vote totals."
+      : `Average recorded votes cast per proposal is ${formatEth(averageRecordedVotes)}. This is a participation proxy, not full turnout against the eligible voter base.`,
+    executionTone: queueOrExecutionCount > 0 ? "success" : "warning",
+    executionLabel: queueOrExecutionCount === 0
+      ? "No proposal has reached queue or execution"
+      : `${counts.succeeded + counts.queued + counts.executed} proposal${counts.succeeded + counts.queued + counts.executed === 1 ? "" : "s"} reached late-stage lifecycle`,
+    executionDetail: queueOrExecutionCount === 0
+      ? "Proposal creation is visible, but none of the current proposals has yet advanced into success, queueing, or execution."
+      : `${counts.succeeded} succeeded, ${counts.queued} queued, and ${counts.executed} executed proposal${counts.executed === 1 ? "" : "s"} are currently visible.`,
+    stateCounts: {
+      active: counts.active.toString(),
+      queued: counts.queued.toString(),
+      executed: counts.executed.toString(),
+      defeated: counts.defeated.toString(),
+      canceled: counts.canceled.toString(),
+    },
+    proposalsWithVotes: proposalsWithVotes.toString(),
+    averageVotes: formatEth(averageRecordedVotes),
+    peakVotes: formatEth(peakRecordedVotes),
+    stateMix: [
+      `Pending: ${counts.pending}`,
+      `Active: ${counts.active}`,
+      `Succeeded: ${counts.succeeded}`,
+      `Queued: ${counts.queued}`,
+      `Executed: ${counts.executed}`,
+      `Defeated: ${counts.defeated}`,
+      `Canceled: ${counts.canceled}`,
+      counts.unknown > 0 ? `Unknown: ${counts.unknown}` : "Unknown: 0",
+    ],
+    recentActivity: proposals
+      .slice(0, 3)
+      .map((proposal) => {
+        const recordedVotes = proposal.forVotes + proposal.againstVotes + proposal.abstainVotes;
+
+        return {
+          badge: `Proposal #${proposal.proposalId}`,
+          stateLabel: proposalStateLabel(proposal.stateCode),
+          tone: proposalStateTone(proposal.stateCode),
+          title: proposal.description || `Single-action proposal #${proposal.proposalId}`,
+          detail: `${formatOptionalMoment(proposal.createdTimestamp)}. Recorded votes: ${formatEth(recordedVotes)}. Current state: ${proposalStateLabel(proposal.stateCode)}.`,
+        };
+      }),
+    notes: [
+      "Proposal state counts come from the current governor proposal reads in this dashboard, not from a separate analytics backend.",
+      "Recorded votes are the current for, against, and abstain tallies visible on each proposal.",
+      "Participation is shown as recorded votes cast, not as authoritative turnout against the full eligible token supply, because this MVP view does not currently index historical total-supply snapshots.",
+      "Queue and execution signals reflect the real governor to timelock lifecycle already implemented in the current contracts.",
+    ],
+  };
+}
+
+function deriveBudgetRunwayView(state) {
+  const bucketId = runwayForm.bucketId.value;
+  const bucket = state.treasury.buckets.find((item) => item.id === bucketId);
+
+  if (bucket === undefined || bucket.status !== "loaded") {
+    throw new Error("Choose a loaded tracked bucket to forecast its runway.");
+  }
+
+  const monthlyBurnWei = parseEthAmount(runwayForm.monthlyBurnEth.value);
+
+  if (monthlyBurnWei <= 0n) {
+    throw new Error("Assumed monthly burn must be greater than zero.");
+  }
+
+  const spentRatioBps = bucket.allocated === 0n
+    ? 0n
+    : (bucket.spent * 10_000n) / bucket.allocated;
+  const wholePercent = spentRatioBps / 100n;
+  const fractionalPercent = (spentRatioBps % 100n).toString().padStart(2, "0");
+  const remainingMonthsScaled = (bucket.remaining * 100n) / monthlyBurnWei;
+  const wholeMonths = remainingMonthsScaled / 100n;
+  const fractionalMonths = (remainingMonthsScaled % 100n).toString().padStart(2, "0");
+  const estimatedDays = Number((bucket.remaining * 30n) / monthlyBurnWei);
+
+  let tone = "success";
+  let label = "Working estimate";
+  let detail = `At the assumed burn rate of ${formatEth(monthlyBurnWei)} per month, ${bucket.label} would last about ${wholeMonths.toString()}.${fractionalMonths} months.`;
+
+  if (bucket.remaining === 0n) {
+    tone = "warning";
+    label = "No runway remaining";
+    detail = `${bucket.label} is already fully spent under current on-chain state.`;
+  } else if (bucket.remaining < monthlyBurnWei) {
+    tone = "warning";
+    label = "Less than one month remaining";
+    detail = `${bucket.label} would last less than one month at the assumed burn rate of ${formatEth(monthlyBurnWei)} per month.`;
+  }
+
+  return {
+    tone,
+    label,
+    title: `${bucket.label} runway`,
+    detail,
+    allocated: formatEth(bucket.allocated),
+    spent: formatEth(bucket.spent),
+    remaining: formatEth(bucket.remaining),
+    spentRatio: `${wholePercent.toString()}.${fractionalPercent}%`,
+    assumedBurn: formatEth(monthlyBurnWei),
+    estimatedRunway: bucket.remaining === 0n
+      ? "0.00 months"
+      : `${wholeMonths.toString()}.${fractionalMonths} months (~${estimatedDays} days)`,
+    notes: [
+      "Allocated, spent, and remaining are actual on-chain bucket values read from the treasury.",
+      `The runway figure is derived by dividing the current remaining balance by the assumed monthly burn of ${formatEth(monthlyBurnWei)}.`,
+      "This estimate assumes steady spend, no additional funding, and no governance-driven bucket changes during the forecast period.",
+    ],
+  };
+}
+
+function deriveDistributionCampaignView(state) {
+  const trackedDistribution = latestConfig?.trackedDistributions.find(
+    (distribution) => distribution.id === distributionCampaignForm.distributionId.value,
+  );
+
+  if (trackedDistribution === undefined) {
+    throw new Error("Choose a tracked distribution template to prepare a campaign.");
+  }
+
+  const totalAmountWei = parseEthAmount(distributionCampaignForm.totalAmountEth.value);
+  const initialFundingWei = parseEthAmount(distributionCampaignForm.initialFundingEth.value);
+  const recipientCount = requireWholeNumber(
+    distributionCampaignForm.recipientCount.value,
+    "Expected claim recipients",
+  );
+  const claimModel = distributionCampaignForm.claimModel.value;
+
+  if (totalAmountWei <= 0n) {
+    throw new Error("Total event amount must be greater than zero.");
+  }
+  if (initialFundingWei <= 0n) {
+    throw new Error("Planned initial funding must be greater than zero.");
+  }
+  if (initialFundingWei > totalAmountWei) {
+    throw new Error("Planned initial funding cannot exceed the total event amount.");
+  }
+
+  const liveDistribution = state?.distributor.distributions.find(
+    (distribution) => distribution.id === trackedDistribution.id,
+  );
+  const firstTrackedDistributionId = latestConfig?.trackedDistributions[0]?.id ?? "";
+  const fullUiCreateSupport = trackedDistribution.id === firstTrackedDistributionId;
+  const unfundedRemainder = totalAmountWei - initialFundingWei;
+
+  return {
+    tone: fullUiCreateSupport ? "success" : "warning",
+    label: fullUiCreateSupport ? "Partially supported in the live UI" : "Guided preparation",
+    title: `${trackedDistribution.label} campaign setup`,
+    detail: liveDistribution?.status === "loaded"
+      ? `${trackedDistribution.label} already exists in the current tracked state, so this panel should be treated as a setup checklist and proof/funding explainer rather than a fresh launch flow.`
+      : `${trackedDistribution.label} can be prepared here as a new campaign concept. The current MVP separates on-chain event creation and funding from off-chain claim package preparation.`,
+    distributionId: trackedDistribution.id,
+    totalAmount: formatEth(totalAmountWei),
+    initialFunding: formatEth(initialFundingWei),
+    unfundedRemainder: formatEth(unfundedRemainder),
+    recipientCount: recipientCount.toString(),
+    claimModel: claimModel === "self-claim"
+      ? "Current self-claim"
+      : "Future-compatible artifact",
+    requiredInputs: [
+      `A stable distribution id such as ${trackedDistribution.id}. The current MVP treats this id as an externally chosen event identity.`,
+      `An event total amount of ${formatEth(totalAmountWei)} and an initial funding plan of ${formatEth(initialFundingWei)}.`,
+      `${recipientCount} intended claim recipient${recipientCount === 1 ? "" : "s"} prepared off-chain before the claim phase begins.`,
+      claimModel === "self-claim"
+        ? "For today's contract flow, each claimant ultimately needs distributionId, recipient, and amount."
+        : "For a future entitlement-style flow, prepare a claim artifact with recipient amounts, Merkle leaves, and proofs off-chain.",
+    ],
+    fundingNotes: [
+      "The Distributor can only fund events from assets it already holds.",
+      "After handoff, createDistribution and fundDistribution are owner-gated and are intended to move through the governor and timelock path.",
+      "The current seeded demo funds the distributor from ETH held by the timelock. The MVP does not yet present a productized treasury-to-distributor funding bridge.",
+    ],
+    supportNotes: [
+      fullUiCreateSupport
+        ? "The live governance panel can create the first tracked distribution as a real proposal today."
+        : "The live governance panel currently only exposes a narrow create-distribution proposal flow for the first tracked distribution in Dashboard Config.",
+      "Funding a distribution is real contract behavior, but the dashboard does not yet expose a full funding campaign wizard or direct governed funding action.",
+      "Self-claiming from an active funded distribution is already a real UI flow once the event is live.",
+    ],
+    toolingCommand: "npx hardhat run scripts/prepare-distribution-claims.ts --build-profile production --network hardhatMainnet",
+    toolingDetail: claimModel === "self-claim"
+      ? "Use the current claim tooling to generate a clear claim package and future-compatible artifact notes, even though the on-chain MVP still uses self-claim requests rather than proof enforcement."
+      : "Use the claim tooling to generate recipient claim entries, Merkle-style convenience data, and the exact current self-claim request shape for demos or tests.",
   };
 }
 

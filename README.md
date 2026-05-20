@@ -311,9 +311,14 @@ What it does today:
 - reads treasury balances and classifications
 - reads tracked budget bucket state
 - reads tracked distributor event state
+- includes a lightweight governance analytics view for proposal mix, recent activity, and recorded voting participation
 - reads governance proposals, vote totals, and proposal status
 - shows a role and control view for ownership and governance relationships
 - shows a compact system health view for funding, handoff posture, and basic readiness signals
+- shows an ops/admin-oriented view for operator status, blocked actions, and the small set of governance-adjacent flows exposed today
+- includes a clearly labeled sandbox mode for preview-only treasury, distributor, and governance what-if exploration
+- includes a lightweight budget runway view for tracked treasury buckets under simple burn assumptions
+- includes a guided distribution campaign setup flow for event inputs, funding assumptions, and claim tooling expectations
 - reads timelock ownership wiring
 - shows a lightweight recent activity feed from treasury, distributor, and governor logs
 - can export or reload a shareable demo-state bundle for repeated dashboard demos
@@ -386,6 +391,7 @@ What it is:
 - a browser-local list of known instances
 - built from real deployment output JSON, shared demo-state bundles, seeded demo JSON, or a manually saved dashboard config
 - a convenience layer for switching between systems, not a hosted backend or authoritative registry
+- includes a lightweight side-by-side comparison flow for two saved instances
 
 What gets stored for each instance:
 - RPC URL
@@ -415,10 +421,112 @@ http://127.0.0.1:4173
 
 4. Use `Known Instances` to switch between saved systems.
 
+5. Use `Compare Two Instances` to load a live side-by-side view from any two saved shelf records.
+
 How instance discovery works today:
 - there is no backend instance index yet
 - the shelf is populated only from the data you import or save in this browser
 - live health, control posture, and balances still come from direct reads against the selected RPC and contracts
+
+What the current comparison view shows:
+- instance identity and source
+- network and RPC availability
+- governor and timelock identity
+- governance posture and top-level governance parameters
+- treasury custody and available operating capital
+- distributor outstanding amount and active distribution count
+- proposal count and tracked bucket or distribution load summaries
+
+What it intentionally omits:
+- a full config diff engine
+- historical comparisons across time
+- deeper per-bucket, per-distribution, or per-proposal diffing
+
+## Ops And Admin View
+
+The dashboard now includes a lightweight `Ops And Admin View` for technically literate operators.
+
+What it highlights:
+- current ownership and governance control posture
+- treasury operating readiness and available operating capital
+- distributor claim readiness and outstanding obligations
+- warnings or blockers drawn from direct contract reads
+- which currently supported actions are available now versus blocked by wallet state, governance posture, or timelock lifecycle
+
+How to interpret it:
+- `Control status` tells you whether the instance still looks bootstrap-managed or properly handed off into the governor plus timelock path
+- `Treasury operations` focuses on whether custody is funded and whether operating capital still looks usable
+- `Distributor operations` focuses on whether a meaningful tracked distribution flow is still live
+- `Available Now` only describes real MVP actions already exposed elsewhere in the UI; it does not imply broader hidden admin powers
+
+MVP compromise:
+- this is a direct-read operator summary, not a full monitoring or incident-response console
+- blocked or available action summaries are intentionally narrow and reflect the existing wallet, governance, and claim flows already implemented in the dashboard
+
+## Sandbox Mode
+
+The dashboard now includes a lightweight `Sandbox Mode` for safe experimentation.
+
+What it is:
+- a preview-only layer built on top of the current live dashboard state
+- a way to explore a few treasury, distributor, and governance what-if scenarios without sending transactions
+- a demo-oriented learning tool, not a full simulation engine
+
+What is simulated:
+- classifying operating capital
+- allocating or spending from a tracked bucket
+- funding or claiming against a tracked distribution
+- the rough lifecycle timing of a new governance proposal created now
+
+What is still real:
+- all live balances, roles, proposal states, and distribution states elsewhere in the dashboard
+- all actual wallet-connected actions in `Wallet And Actions`
+
+Important boundary:
+- sandbox results are UI-only previews
+- they do not modify chain state
+- they do not predict vote outcomes or guarantee execution readiness beyond the current timing parameters
+
+## Governance Analytics
+
+The dashboard now includes a lightweight `Governance Analytics` view.
+
+What it currently shows:
+- total proposal count
+- proposal counts by state
+- recent proposal activity
+- recorded votes cast across current proposals
+- average and peak recorded vote totals
+- whether proposals have reached success, queueing, or execution stages
+
+How the numbers are derived:
+- proposal activity comes from the current governor proposal reads already used by the dashboard
+- vote participation is based on the live `for`, `against`, and `abstain` tallies on each visible proposal
+- queue and execution signals come from the real governor and timelock lifecycle state
+
+Important limitation:
+- this MVP view shows a participation proxy, not authoritative turnout against the full eligible voter base
+- it does not currently index historical total-supply snapshots or a richer governance analytics backend
+
+## Budget Runway
+
+The dashboard now includes a lightweight `Budget Runway` view for tracked treasury buckets.
+
+What it currently shows:
+- actual allocated amount
+- actual spent amount
+- actual remaining amount
+- spent ratio
+- a user-provided monthly burn assumption
+- an estimated runway in months and approximate days
+
+How the forecast is derived:
+- bucket balances come from the current live treasury read model
+- the runway estimate divides the bucket's current remaining amount by the assumed monthly burn
+
+Important limitation:
+- this is a simple forecast, not a financial planning engine
+- it does not model new funding, variable burn, governance timing, or future policy changes
 
 Suggested local demo roles:
 - `Bootstrap admin` (`Hardhat account #0`)
@@ -458,6 +566,38 @@ What the current distributor claim view supports:
 - explaining claim readiness in plain language, including wallet connection and chain-match requirements
 - selecting an event from the distributor view and using the real self-claim flow for the full remaining funded amount
 - being honest about the current MVP limitation that richer entitlement logic or proof-based claims are not part of this flow yet
+
+## Distribution Campaign Setup
+
+The dashboard now includes a lightweight `Distribution Campaign Setup` flow.
+
+What it helps explain:
+- what a distribution event is
+- which distribution id and amount inputs are required
+- how much you plan to fund now versus later
+- how many recipients you expect to support
+- whether you are working in today's self-claim model or preparing future-compatible claim artifacts
+
+What is truly supported now:
+- the Distributor contract really does support event creation, funding, and self-claiming
+- the live governance panel can currently create the first tracked distribution as a real proposal
+- the claim tooling script can generate a repeatable claim artifact and current claim-request shape for demos or tests
+
+What is still guided-only:
+- a full end-to-end campaign wizard in the UI
+- governed funding actions for new campaigns in one productized flow
+- on-chain proof enforcement or richer entitlement management
+
+Useful local flow:
+1. Start the local chain and seeded demo dashboard.
+2. Open `Distribution Campaign Setup`.
+3. Choose a tracked distribution template and enter total amount, initial funding, recipient count, and claim model.
+4. Use the setup summary to understand which parts belong to on-chain event creation, governed funding, and off-chain claim tooling.
+5. If you need a claim package, run the claim-artifact script:
+
+```bash
+npx hardhat run scripts/prepare-distribution-claims.ts --build-profile production --network hardhatMainnet
+```
 
 ## Distributor Claim Tooling
 

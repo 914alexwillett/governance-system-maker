@@ -212,6 +212,34 @@
               <div id="instance-list-panel"></div>
             </div>
           </div>
+
+          <div class="action-card compare-card">
+            <h3>Compare Two Instances</h3>
+            <p class="action-copy">
+              Pick two saved instances and load a small side-by-side comparison of
+              live top-level signals. This compares the selected RPCs directly and
+              labels anything unavailable.
+            </p>
+            <form id="instance-compare-form" class="config-form">
+              <div class="config-grid">
+                <label>
+                  <span>Left instance</span>
+                  <select id="compare-primary-instance" name="primaryInstanceId"></select>
+                </label>
+                <label>
+                  <span>Right instance</span>
+                  <select id="compare-secondary-instance" name="secondaryInstanceId"></select>
+                </label>
+              </div>
+              <div class="button-row compact-row">
+                <button type="submit">Compare instances</button>
+              </div>
+            </form>
+            <p id="compare-status-banner" class="status-banner" data-tone="loading">
+              Choose two saved instances to compare their live top-level state.
+            </p>
+            <div id="compare-panel"></div>
+          </div>
         </section>
 
         <section id="dashboard-config-section" class="panel config-panel">
@@ -336,6 +364,95 @@
             </p>
           </div>
           <div id="health-panel"></div>
+        </section>
+
+        <section id="ops-admin-section" class="panel">
+          <div class="panel-header">
+            <h2>Ops And Admin View</h2>
+            <p>
+              A lightweight operator view of control posture, treasury and
+              distributor readiness, blocked actions, and the small set of
+              governance-adjacent actions this MVP currently exposes.
+            </p>
+          </div>
+          <div id="ops-panel"></div>
+        </section>
+
+        <section id="sandbox-mode-section" class="panel">
+          <div class="panel-header">
+            <h2>Sandbox Mode</h2>
+            <p>
+              A clearly labeled experimental layer for "what if" exploration.
+              These previews do not send transactions and do not modify live
+              on-chain state. They only show how a small set of treasury,
+              distributor, and governance actions could affect the current MVP view.
+            </p>
+          </div>
+
+          <p id="sandbox-status-banner" class="status-banner" data-tone="loading">
+            Sandbox mode is preview-only. Use it to explore hypothetical changes without affecting the live instance.
+          </p>
+
+          <div class="actions-layout">
+            <div class="action-card">
+              <h3>Treasury What-If</h3>
+              <form id="sandbox-treasury-form" class="action-form">
+                <label>
+                  <span>Scenario</span>
+                  <select name="actionKey">
+                    <option value="classify">Classify unallocated capital as operating</option>
+                    <option value="allocate">Allocate budget to tracked bucket</option>
+                    <option value="spend">Spend from tracked bucket</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Tracked bucket</span>
+                  <select name="bucketId"></select>
+                </label>
+                <label>
+                  <span>Amount (ETH)</span>
+                  <input name="amountEth" type="text" value="0.5" inputmode="decimal" />
+                </label>
+                <div id="sandbox-treasury-preview" class="action-preview"></div>
+              </form>
+            </div>
+
+            <div class="action-card">
+              <h3>Distributor What-If</h3>
+              <form id="sandbox-distributor-form" class="action-form">
+                <label>
+                  <span>Scenario</span>
+                  <select name="actionKey">
+                    <option value="fund">Add funding to tracked distribution</option>
+                    <option value="claim">Simulate a claim against tracked distribution</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Distribution</span>
+                  <select name="distributionId"></select>
+                </label>
+                <label>
+                  <span>Amount (ETH)</span>
+                  <input name="amountEth" type="text" value="0.25" inputmode="decimal" />
+                </label>
+                <div id="sandbox-distributor-preview" class="action-preview"></div>
+              </form>
+            </div>
+
+            <div class="action-card">
+              <h3>Governance What-If</h3>
+              <p class="action-copy">
+                This preview translates the current governor and timelock settings
+                into a simple lifecycle story for a new proposal created now.
+              </p>
+              <div id="sandbox-governance-preview" class="action-preview"></div>
+            </div>
+          </div>
+
+          <p class="action-note">
+            Sandbox previews are UI-only convenience logic. The real system state still comes
+            from the live dashboard sections above and below.
+          </p>
         </section>
 
         <section id="wallet-actions-section" class="panel">
@@ -482,6 +599,113 @@
           <div id="buckets-panel"></div>
         </section>
 
+        <section id="budget-runway-section" class="panel">
+          <div class="panel-header">
+            <h2>Budget Runway</h2>
+            <p>
+              A lightweight forward-looking view of how long a tracked bucket might
+              last under a simple burn-rate assumption. Live balances are real
+              on-chain values; the runway estimate is a user-driven forecast.
+            </p>
+          </div>
+          <div class="actions-layout">
+            <div class="action-card">
+              <h3>Forecast Inputs</h3>
+              <form id="runway-form" class="action-form">
+                <label>
+                  <span>Tracked bucket</span>
+                  <select name="bucketId"></select>
+                </label>
+                <label>
+                  <span>Assumed monthly burn (ETH)</span>
+                  <input
+                    name="monthlyBurnEth"
+                    type="text"
+                    value="0.25"
+                    inputmode="decimal"
+                  />
+                </label>
+              </form>
+            </div>
+
+            <div class="action-card">
+              <h3>Runway Forecast</h3>
+              <div id="runway-panel"></div>
+            </div>
+          </div>
+          <p class="action-note">
+            This forecast is intentionally simple. It does not model new funding,
+            variable burn, governance timing, or future policy changes.
+          </p>
+        </section>
+
+        <section id="distribution-campaign-section" class="panel">
+          <div class="panel-header">
+            <h2>Distribution Campaign Setup</h2>
+            <p>
+              A guided preparation flow for new distribution events. It explains
+              the required inputs, the current funding path, and how claim or proof
+              setup works in this MVP without pretending the full campaign flow is
+              already automated in the UI.
+            </p>
+          </div>
+          <div class="actions-layout">
+            <div class="action-card">
+              <h3>Campaign Inputs</h3>
+              <form id="distribution-campaign-form" class="action-form">
+                <label>
+                  <span>Tracked distribution template</span>
+                  <select name="distributionId"></select>
+                </label>
+                <label>
+                  <span>Total event amount (ETH)</span>
+                  <input
+                    name="totalAmountEth"
+                    type="text"
+                    value="1"
+                    inputmode="decimal"
+                  />
+                </label>
+                <label>
+                  <span>Planned initial funding (ETH)</span>
+                  <input
+                    name="initialFundingEth"
+                    type="text"
+                    value="1"
+                    inputmode="decimal"
+                  />
+                </label>
+                <label>
+                  <span>Expected claim recipients</span>
+                  <input
+                    name="recipientCount"
+                    type="text"
+                    value="1"
+                    inputmode="numeric"
+                  />
+                </label>
+                <label>
+                  <span>Claim setup model</span>
+                  <select name="claimModel">
+                    <option value="self-claim">Current MVP self-claim flow</option>
+                    <option value="future-artifact">Future-compatible claim artifact flow</option>
+                  </select>
+                </label>
+              </form>
+            </div>
+
+            <div class="action-card">
+              <h3>Campaign Preparation</h3>
+              <div id="distribution-campaign-panel"></div>
+            </div>
+          </div>
+          <p class="action-note">
+            Current MVP truth: the contract supports event creation, funding, and
+            self-claims; richer entitlement and proof management still depends on
+            off-chain preparation.
+          </p>
+        </section>
+
         <section id="distributor-events-section" class="panel">
           <div class="panel-header">
             <h2>Distributor Events</h2>
@@ -500,6 +724,18 @@
             </p>
           </div>
           <div id="roles-panel"></div>
+        </section>
+
+        <section id="governance-analytics-section" class="panel">
+          <div class="panel-header">
+            <h2>Governance Analytics</h2>
+            <p>
+              A lightweight view of proposal activity, lifecycle mix, and recorded
+              voting participation. These signals come from the current governor and
+              proposal reads, so they are helpful but not a full governance analytics platform.
+            </p>
+          </div>
+          <div id="governance-analytics-panel"></div>
         </section>
 
         <section id="governance-proposals-section" class="panel">
