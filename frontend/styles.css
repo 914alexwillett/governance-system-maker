@@ -646,6 +646,55 @@ button:disabled {
   line-height: 1.6;
 }
 
+.instance-list {
+  display: grid;
+  gap: 14px;
+}
+
+.instance-card {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.instance-card.is-selected {
+  border-color: rgba(13, 122, 95, 0.24);
+  background: linear-gradient(135deg, rgba(13, 122, 95, 0.09), rgba(255, 255, 255, 0.7));
+}
+
+.instance-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.instance-card-head strong {
+  display: block;
+  margin-top: 8px;
+}
+
+.instance-copy {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.instance-meta-grid {
+  display: grid;
+  gap: 10px 16px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.instance-meta-grid strong {
+  color: var(--ink);
+}
+
 .list-head,
 .list-row {
   display: grid;

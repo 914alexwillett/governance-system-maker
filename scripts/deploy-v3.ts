@@ -26,6 +26,7 @@ const chainId = await publicClient.getChainId();
 
 console.log(`Deploying Governance Capital MVP to ${networkName}`);
 console.log(`Network label: ${config.network.label}`);
+console.log(`Preset: ${config.preset.label} (${config.preset.key})`);
 console.log(`Chain ID: ${chainId}`);
 console.log(`Bootstrap deployer: ${deployerAddress}`);
 
@@ -114,6 +115,12 @@ const deployedAddresses: DeploymentAddresses = {
 const postDeployState = {
   network: networkName,
   networkLabel: config.network.label,
+  preset: {
+    key: config.preset.key,
+    label: config.preset.label,
+    useWhen: config.preset.useWhen,
+    notes: config.preset.notes,
+  },
   chainId,
   deployer: deployerAddress,
   deployedAddresses,
@@ -154,6 +161,7 @@ const postDeployState = {
       proposalThreshold: config.governor.proposalThreshold.toString(),
       quorumNumeratorBps: config.governor.quorumNumeratorBps.toString(),
     },
+    assumptions: config.assumptions,
   },
   handoffSteps: [
     "Deployer bootstrapped all modules as the temporary owner/admin.",

@@ -29,6 +29,7 @@ import {
 const CONFIG_STORAGE_KEY = "governance-capital-demo-config-v1";
 const DEPLOYER_STORAGE_KEY = "governance-capital-launch-config-v1";
 const GUIDED_DEMO_STORAGE_KEY = "governance-capital-guided-demo-step-v1";
+const INSTANCE_REGISTRY_STORAGE_KEY = "governance-capital-instance-registry-v1";
 
 const GUIDED_DEMO_STEPS = [
   {
@@ -98,15 +99,28 @@ const deployerStatusBanner = document.querySelector("#deployer-status-banner");
 const launchSummaryPanel = document.querySelector("#launch-summary-panel");
 const launchModulesPanel = document.querySelector("#launch-modules-panel");
 const launchHandoffPanel = document.querySelector("#launch-handoff-panel");
+const launchReadinessPanel = document.querySelector("#launch-readiness-panel");
+const launchNextStepsPanel = document.querySelector("#launch-next-steps-panel");
 const launchCommandPanel = document.querySelector("#launch-command-panel");
 const guidedDemoPanel = document.querySelector("#guided-demo-panel");
 const resetDeployerDefaultsButton = document.querySelector("#reset-deployer-defaults");
 const copyLaunchCommandButton = document.querySelector("#copy-launch-command");
+const copyLaunchEnvButton = document.querySelector("#copy-launch-env");
 const copyLaunchConfigButton = document.querySelector("#copy-launch-config");
+const downloadLaunchPacketButton = document.querySelector("#download-launch-packet");
+const importLaunchOutputFileInput = document.querySelector("#import-launch-output-file");
+const launchOutputImportTextarea = document.querySelector("#launch-output-import");
+const applyLaunchOutputButton = document.querySelector("#apply-launch-output");
+const loadLaunchOutputFileButton = document.querySelector("#load-launch-output-file");
+const instanceStatusBanner = document.querySelector("#instance-status-banner");
+const instanceSummaryPanel = document.querySelector("#instance-summary-panel");
+const instanceListPanel = document.querySelector("#instance-list-panel");
+const saveCurrentInstanceButton = document.querySelector("#save-current-instance");
 
 const form = document.querySelector("#config-form");
 const statusBanner = document.querySelector("#status-banner");
 const writeStatusBanner = document.querySelector("#write-status-banner");
+const shareStateBanner = document.querySelector("#share-state-banner");
 const healthPanel = document.querySelector("#health-panel");
 const summaryPanel = document.querySelector("#summary-panel");
 const treasuryPanel = document.querySelector("#treasury-panel");
@@ -119,6 +133,12 @@ const historyPanel = document.querySelector("#history-panel");
 const notePanel = document.querySelector("#note-panel");
 const walletPanel = document.querySelector("#wallet-panel");
 const resetButton = document.querySelector("#reset-defaults");
+const copyDemoStateButton = document.querySelector("#copy-demo-state");
+const downloadDemoStateButton = document.querySelector("#download-demo-state");
+const loadDemoStateFileButton = document.querySelector("#load-demo-state-file");
+const importDemoStateFileInput = document.querySelector("#import-demo-state-file");
+const demoStateImportTextarea = document.querySelector("#demo-state-import");
+const applyDemoStateButton = document.querySelector("#apply-demo-state");
 const connectWalletButton = document.querySelector("#connect-wallet");
 const switchWalletNetworkButton = document.querySelector("#switch-wallet-network");
 const fundTreasuryForm = document.querySelector("#fund-treasury-form");
@@ -136,6 +156,7 @@ let latestConfig = null;
 let latestLaunchPlan = null;
 let guidedDemoStepIndex = loadGuidedDemoStepIndex();
 let latestWalletVotes = 0n;
+let instanceRegistry = loadStoredInstanceRegistry();
 let walletState = {
   available: false,
   account: null,
@@ -165,13 +186,42 @@ async function bootstrap() {
     await handleCopyLaunchCommand();
   });
 
+  copyLaunchEnvButton.addEventListener("click", async () => {
+    await handleCopyLaunchEnv();
+  });
+
   copyLaunchConfigButton.addEventListener("click", async () => {
     await handleCopyLaunchConfig();
+  });
+
+  downloadLaunchPacketButton.addEventListener("click", () => {
+    handleDownloadLaunchPacket();
+  });
+
+  applyLaunchOutputButton.addEventListener("click", async () => {
+    await handleApplyLaunchOutputText();
+  });
+
+  loadLaunchOutputFileButton.addEventListener("click", () => {
+    importLaunchOutputFileInput.click();
+  });
+
+  importLaunchOutputFileInput.addEventListener("change", async (event) => {
+    await handleImportLaunchOutputFile(event);
+  });
+
+  saveCurrentInstanceButton.addEventListener("click", () => {
+    handleSaveCurrentInstance();
+  });
+
+  instanceListPanel.addEventListener("click", async (event) => {
+    await handleInstanceListAction(event);
   });
 
   const config = loadStoredConfig();
   hydrateForm(config);
   latestConfig = config;
+  renderInstanceManager();
   walletState = await getWalletState();
   latestWalletVotes = await refreshWalletVotes(config);
 
@@ -183,6 +233,26 @@ async function bootstrap() {
   resetButton.addEventListener("click", async () => {
     hydrateForm(structuredClone(demoDefaults));
     await refresh();
+  });
+
+  copyDemoStateButton.addEventListener("click", async () => {
+    await handleCopyDemoState();
+  });
+
+  downloadDemoStateButton.addEventListener("click", () => {
+    handleDownloadDemoState();
+  });
+
+  loadDemoStateFileButton.addEventListener("click", () => {
+    importDemoStateFileInput.click();
+  });
+
+  importDemoStateFileInput.addEventListener("change", async (event) => {
+    await handleImportDemoStateFile(event);
+  });
+
+  applyDemoStateButton.addEventListener("click", async () => {
+    await handleApplyDemoStateText();
   });
 
   connectWalletButton.addEventListener("click", async () => {
@@ -264,6 +334,7 @@ async function refresh() {
   try {
     const state = await loadDashboardState(config);
     latestState = state;
+    syncSavedInstanceFromLiveState(config, state);
     hydrateClaimSelector(config, state);
     renderHealth(state);
     renderSummary(config, state);
@@ -278,6 +349,7 @@ async function refresh() {
     renderWalletPanel();
     renderTreasuryActionForm(state);
     renderClaimPreview();
+    renderInstanceManager();
     setStatus("Dashboard updated from the current chain state.", "success");
   } catch (error) {
     latestState = null;
@@ -287,11 +359,90 @@ async function refresh() {
     renderTreasuryActionForm(null);
     renderGovernance(null);
     renderClaimPreview();
+    renderInstanceManager();
     setStatus(
       `${toMessage(error)} Check that the local chain is running and the configured addresses match the latest seeded deployment.`,
       "error",
     );
   }
+}
+
+function handleSaveCurrentInstance() {
+  try {
+    const config = normalizeDashboardConfig(readFormConfig());
+    const existing = findSavedInstance(config);
+    const record = buildInstanceRecord({
+      config,
+      state: latestState,
+      sourceType: existing?.sourceType ?? "dashboard-config",
+      label: existing?.label,
+      metadata: existing?.metadata ?? {},
+    });
+
+    upsertInstanceRecord(record);
+    setInstanceStatus(
+      existing === null || existing === undefined
+        ? `Saved ${record.label} to the local instance shelf.`
+        : `Updated ${record.label} in the local instance shelf.`,
+      "success",
+    );
+  } catch (error) {
+    setInstanceStatus(toMessage(error), "error");
+  }
+}
+
+async function handleInstanceListAction(event) {
+  const actionButton = event.target.closest("[data-instance-action]");
+
+  if (!(actionButton instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  const instanceId = actionButton.dataset.instanceId ?? "";
+
+  if (instanceId.length === 0) {
+    return;
+  }
+
+  if (actionButton.dataset.instanceAction === "remove") {
+    forgetInstanceRecord(instanceId);
+    return;
+  }
+
+  if (actionButton.dataset.instanceAction === "select") {
+    await selectInstanceRecord(instanceId);
+  }
+}
+
+async function selectInstanceRecord(instanceId) {
+  const record = instanceRegistry.find((item) => item.id === instanceId);
+
+  if (record === undefined) {
+    setInstanceStatus("That saved instance is no longer available.", "error");
+    renderInstanceManager();
+    return;
+  }
+
+  hydrateForm(record.config);
+  latestConfig = structuredClone(record.config);
+  storeConfig(record.config);
+  setInstanceStatus(`Loaded ${record.label} into the dashboard.`, "success");
+  await refresh();
+}
+
+function forgetInstanceRecord(instanceId) {
+  const record = instanceRegistry.find((item) => item.id === instanceId);
+
+  if (record === undefined) {
+    setInstanceStatus("That saved instance is no longer available.", "error");
+    renderInstanceManager();
+    return;
+  }
+
+  instanceRegistry = instanceRegistry.filter((item) => item.id !== instanceId);
+  storeInstanceRegistry(instanceRegistry);
+  renderInstanceManager();
+  setInstanceStatus(`Removed ${record.label} from the local instance shelf.`, "success");
 }
 
 async function handleConnectWallet() {
@@ -434,6 +585,85 @@ async function handleTreasuryGovernanceAction() {
   }
 }
 
+async function handleCopyDemoState() {
+  try {
+    const exportedState = JSON.stringify(buildShareableDemoState(), null, 2);
+    await copyText(exportedState);
+    setShareStateStatus(
+      "Shareable demo state copied. You can paste it into another local dashboard instance.",
+      "success",
+    );
+  } catch (error) {
+    setShareStateStatus(toMessage(error), "error");
+  }
+}
+
+function handleDownloadDemoState() {
+  try {
+    const shareableState = buildShareableDemoState();
+    const networkLabel = latestState === null ? "dashboard" : chainLabel(latestState.rpcChainId)
+      .replaceAll(/\s+/g, "-")
+      .toLowerCase();
+    const fileName = `governance-capital-demo-state-${networkLabel}.json`;
+
+    downloadTextFile(fileName, `${JSON.stringify(shareableState, null, 2)}\n`);
+    setShareStateStatus(
+      `Shareable demo state downloaded as ${fileName}.`,
+      "success",
+    );
+  } catch (error) {
+    setShareStateStatus(toMessage(error), "error");
+  }
+}
+
+async function handleImportDemoStateFile(event) {
+  try {
+    const input = event.currentTarget;
+    const file = input?.files?.[0];
+
+    if (file === undefined) {
+      return;
+    }
+
+    const content = await file.text();
+    demoStateImportTextarea.value = content;
+    await applyImportedDemoState(content, "Loaded shared demo state file.");
+  } catch (error) {
+    setShareStateStatus(toMessage(error), "error");
+  } finally {
+    importDemoStateFileInput.value = "";
+  }
+}
+
+async function handleApplyDemoStateText() {
+  try {
+    await applyImportedDemoState(
+      demoStateImportTextarea.value,
+      "Loaded pasted shared demo state.",
+    );
+  } catch (error) {
+    setShareStateStatus(toMessage(error), "error");
+  }
+}
+
+async function applyImportedDemoState(rawText, successMessage) {
+  const imported = parseImportedDemoState(rawText);
+  hydrateForm(imported.config);
+  latestConfig = imported.config;
+  storeConfig(imported.config);
+
+  if (imported.instanceRecord !== null) {
+    upsertInstanceRecord(imported.instanceRecord);
+    setInstanceStatus(
+      `Saved ${imported.instanceRecord.label} to the local instance shelf.`,
+      "success",
+    );
+  }
+
+  setShareStateStatus(successMessage, "success");
+  await refresh();
+}
+
 function renderLaunchPlan(launchPlan) {
   latestLaunchPlan = launchPlan;
 
@@ -458,6 +688,30 @@ function renderLaunchPlan(launchPlan) {
   launchHandoffPanel.innerHTML = `
     <ol class="sequence-list">
       ${launchPlan.handoffSteps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}
+    </ol>
+  `;
+
+  launchReadinessPanel.innerHTML = `
+    <div class="roles-overview launch-readiness-grid">
+      <div class="role-status-card" data-mode="${escapeHtml(launchPlan.readiness.deployTone)}">
+        <span class="eyebrow">Launch posture</span>
+        <strong>${escapeHtml(launchPlan.readiness.deployLabel)}</strong>
+        <p>${escapeHtml(launchPlan.readiness.deployDetail)}</p>
+      </div>
+      <div class="role-status-card" data-mode="${escapeHtml(launchPlan.readiness.envTone)}">
+        <span class="eyebrow">Environment setup</span>
+        <strong>${escapeHtml(launchPlan.readiness.envLabel)}</strong>
+        <p>${escapeHtml(launchPlan.readiness.envDetail)}</p>
+      </div>
+    </div>
+    <ul class="notes-list compact-list">
+      ${launchPlan.readiness.checklist.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+    </ul>
+  `;
+
+  launchNextStepsPanel.innerHTML = `
+    <ol class="sequence-list">
+      ${launchPlan.nextSteps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}
     </ol>
   `;
 
@@ -494,6 +748,195 @@ function renderLaunchPlan(launchPlan) {
       </ul>
     </div>
   `;
+}
+
+function renderInstanceManager() {
+  const config = latestConfig ?? loadStoredConfig();
+  const savedRecord = findSavedInstance(config);
+  const selectedSummary = buildSelectedInstanceSummary(config, latestState, savedRecord);
+
+  instanceSummaryPanel.innerHTML = `
+    <div class="roles-overview">
+      <div class="role-status-card" data-mode="${escapeHtml(selectedSummary.selectionTone)}">
+        <span class="eyebrow">Selection state</span>
+        <strong>${escapeHtml(selectedSummary.selectionLabel)}</strong>
+        <p>${escapeHtml(selectedSummary.selectionDetail)}</p>
+      </div>
+      <div class="role-status-card" data-mode="${escapeHtml(selectedSummary.readinessTone)}">
+        <span class="eyebrow">Instance posture</span>
+        <strong>${escapeHtml(selectedSummary.readinessLabel)}</strong>
+        <p>${escapeHtml(selectedSummary.readinessDetail)}</p>
+      </div>
+    </div>
+    <div class="panel-grid compact">
+      ${metricCard("Instance", selectedSummary.label)}
+      ${metricCard("Source", selectedSummary.sourceLabel)}
+      ${metricCard("Network", selectedSummary.networkLabel)}
+      ${metricCard("Tracked buckets", selectedSummary.bucketCount)}
+      ${metricCard("Tracked distributions", selectedSummary.distributionCount)}
+      ${metricCard("Saved records", instanceRegistry.length)}
+    </div>
+    <p class="action-note">${escapeHtml(selectedSummary.note)}</p>
+  `;
+
+  if (instanceRegistry.length === 0) {
+    instanceListPanel.innerHTML = emptyState(
+      "No saved instances yet. Import deployment output, load a shared state bundle, or save the current dashboard config.",
+    );
+    return;
+  }
+
+  const selectedId = buildInstanceId(config);
+
+  instanceListPanel.innerHTML = `
+    <div class="instance-list">
+      ${instanceRegistry.map((record) => renderInstanceCard(record, record.id === selectedId)).join("")}
+    </div>
+  `;
+}
+
+function buildSelectedInstanceSummary(config, state, savedRecord) {
+  const roleView = state === null ? null : deriveRoleView(state);
+  const healthView = state === null ? null : deriveHealthView(state);
+  const record = savedRecord ?? buildInstanceRecord({
+    config,
+    state,
+    sourceType: savedRecord?.sourceType ?? "dashboard-config",
+    label: savedRecord?.label,
+    metadata: savedRecord?.metadata ?? {},
+  });
+
+  return {
+    label: record.label,
+    sourceLabel: instanceSourceLabel(record.sourceType),
+    networkLabel: record.metadata.networkLabel || inferNetworkLabelFromRpc(config.rpcUrl),
+    bucketCount: String(config.trackedBuckets.length),
+    distributionCount: String(config.trackedDistributions.length),
+    selectionLabel: savedRecord === null ? "Current dashboard is not yet saved" : "Current dashboard matches a saved instance",
+    selectionTone: savedRecord === null ? "warning" : "success",
+    selectionDetail: savedRecord === null
+      ? "You can still inspect this system now, but saving it makes it easier to switch back later from the local shelf."
+      : `This dashboard configuration is already stored as ${record.label}.`,
+    readinessLabel: healthView?.readinessLabel ?? "Config loaded, live state pending",
+    readinessTone: healthView?.readinessTone ?? "warning",
+    readinessDetail: healthView?.readinessDetail ?? "Refresh the dashboard against a live RPC endpoint to confirm health, control posture, and tracked ids.",
+    note: roleView === null
+      ? "Instance records are local browser convenience metadata. The authoritative part is still the RPC URL, deployed addresses, and tracked ids."
+      : `Current control posture: ${roleView.modeLabel}. Saved instance metadata helps you switch contexts, but it does not replace live contract reads.`,
+  };
+}
+
+function renderInstanceCard(record, isSelected) {
+  const addressCount = Object.values(record.config.addresses).filter((address) =>
+    /^0x[a-fA-F0-9]{40}$/.test(address ?? "")
+  ).length;
+
+  return `
+    <article class="instance-card${isSelected ? " is-selected" : ""}">
+      <div class="instance-card-head">
+        <div>
+          <span class="eyebrow">${escapeHtml(instanceSourceLabel(record.sourceType))}</span>
+          <strong>${escapeHtml(record.label)}</strong>
+          <p class="instance-copy">${escapeHtml(record.metadata.networkLabel || inferNetworkLabelFromRpc(record.config.rpcUrl))}</p>
+        </div>
+        <span class="history-pill" data-category="${escapeHtml(instanceCategory(record))}">
+          ${escapeHtml(isSelected ? "Selected" : "Saved")}
+        </span>
+      </div>
+      <div class="instance-meta-grid">
+        <span><strong>RPC:</strong> ${escapeHtml(record.config.rpcUrl)}</span>
+        <span><strong>Contracts:</strong> ${addressCount}/5 loaded</span>
+        <span><strong>Buckets:</strong> ${record.config.trackedBuckets.length}</span>
+        <span><strong>Distributions:</strong> ${record.config.trackedDistributions.length}</span>
+        <span><strong>Control:</strong> ${escapeHtml(record.metadata.roleMode || "Unknown until live read")}</span>
+        <span><strong>Last saved:</strong> ${escapeHtml(formatSavedMoment(record.savedAt))}</span>
+      </div>
+      <div class="button-row compact-row">
+        <button type="button" data-instance-action="select" data-instance-id="${escapeHtml(record.id)}" ${isSelected ? "disabled" : ""}>
+          ${isSelected ? "Currently selected" : "Use this instance"}
+        </button>
+        <button type="button" class="ghost-button" data-instance-action="remove" data-instance-id="${escapeHtml(record.id)}">
+          Forget
+        </button>
+      </div>
+    </article>
+  `;
+}
+
+async function handleCopyLaunchEnv() {
+  try {
+    if (latestLaunchPlan === null) {
+      throw new Error("Generate a launch plan before copying environment setup.");
+    }
+
+    await copyText(latestLaunchPlan.envExample);
+    setDeployerStatus("Environment setup copied.", "success");
+  } catch (error) {
+    setDeployerStatus(toMessage(error), "error");
+  }
+}
+
+function handleDownloadLaunchPacket() {
+  try {
+    if (latestLaunchPlan === null) {
+      throw new Error("Generate a launch plan before downloading a launch packet.");
+    }
+
+    const fileName = `${latestLaunchPlan.systemLabel.replaceAll(/[^a-zA-Z0-9]+/g, "-").replaceAll(/^-|-$/g, "").toLowerCase() || "governance-capital-launch"}-launch-packet.json`;
+    downloadTextFile(fileName, `${JSON.stringify(buildLaunchPacket(latestLaunchPlan), null, 2)}\n`);
+    setDeployerStatus(`Launch packet downloaded as ${fileName}.`, "success");
+  } catch (error) {
+    setDeployerStatus(toMessage(error), "error");
+  }
+}
+
+async function handleApplyLaunchOutputText() {
+  try {
+    await applyImportedDemoState(
+      launchOutputImportTextarea.value,
+      "Deployment output loaded into the dashboard config.",
+    );
+    setDeployerStatus(
+      "Deployment output loaded. The dashboard is now pointed at the new instance.",
+      "success",
+    );
+    document.querySelector("#dashboard-config-section")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  } catch (error) {
+    setDeployerStatus(toMessage(error), "error");
+  }
+}
+
+async function handleImportLaunchOutputFile(event) {
+  try {
+    const input = event.currentTarget;
+    const file = input?.files?.[0];
+
+    if (file === undefined) {
+      return;
+    }
+
+    const content = await file.text();
+    launchOutputImportTextarea.value = content;
+    await applyImportedDemoState(
+      content,
+      "Deployment output file loaded into the dashboard config.",
+    );
+    setDeployerStatus(
+      "Deployment output file loaded. The dashboard is now pointed at the new instance.",
+      "success",
+    );
+    document.querySelector("#dashboard-config-section")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  } catch (error) {
+    setDeployerStatus(toMessage(error), "error");
+  } finally {
+    importLaunchOutputFileInput.value = "";
+  }
 }
 
 function renderGuidedDemo() {
@@ -1640,6 +2083,42 @@ function setDeployerStatus(message, tone) {
   deployerStatusBanner.dataset.tone = tone;
 }
 
+function setShareStateStatus(message, tone) {
+  shareStateBanner.textContent = message;
+  shareStateBanner.dataset.tone = tone;
+}
+
+function setInstanceStatus(message, tone) {
+  instanceStatusBanner.textContent = message;
+  instanceStatusBanner.dataset.tone = tone;
+}
+
+function loadStoredInstanceRegistry() {
+  const raw = window.localStorage.getItem(INSTANCE_REGISTRY_STORAGE_KEY);
+
+  if (raw === null) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((item) => normalizeInstanceRecord(item))
+      .filter((item) => item.config !== null);
+  } catch {
+    return [];
+  }
+}
+
+function storeInstanceRegistry(registry) {
+  window.localStorage.setItem(INSTANCE_REGISTRY_STORAGE_KEY, JSON.stringify(registry));
+}
+
 function loadStoredDeployerConfig() {
   const raw = window.localStorage.getItem(DEPLOYER_STORAGE_KEY);
 
@@ -1763,7 +2242,62 @@ function buildLaunchPlan(config) {
         quorumNumeratorBps: recommended.quorumNumeratorBps,
       },
     },
+    readiness: {
+      deployLabel: profile.deployMode === "testnet"
+        ? "Real testnet launch path"
+        : "Safe rehearsal launch path",
+      deployTone: profile.deployMode === "testnet" ? "warning" : "success",
+      deployDetail: profile.deployMode === "testnet"
+        ? "This profile maps to a real external network, so the launcher stays review-first and expects you to run the deploy script from a terminal."
+        : "This profile is the easiest way to rehearse a real launch flow locally before moving to a public testnet.",
+      envLabel: profile.requiredEnvVars.length === 0
+        ? "No extra secrets required"
+        : `${profile.requiredEnvVars.length} environment values required`,
+      envTone: profile.requiredEnvVars.length === 0 ? "success" : "warning",
+      envDetail: profile.requiredEnvVars.length === 0
+        ? "The current profile can run without extra environment setup beyond your local node."
+        : "This profile needs explicit RPC and deployer key values before the terminal launch will succeed.",
+      checklist: [
+        `Review the module stack for ${profile.label}.`,
+        "Confirm token identity, supply, and timelock delay before copying the launch packet.",
+        profile.requiredEnvVars.length === 0
+          ? "Start the target local node before running the deploy command."
+          : `Set ${profile.requiredEnvVars.join(" and ")} in your terminal session.`,
+        "Run the copied deploy command outside the browser.",
+        "Paste the deployment output JSON back into this launcher to inspect the new instance in the dashboard.",
+      ],
+    },
+    nextSteps: [
+      "Run the copied deploy command in a terminal that has the right network access and environment values.",
+      "After deployment, copy the JSON printed under Deployment Output (JSON).",
+      "Paste that JSON into Paste deployment output JSON and load it into the dashboard.",
+      profile.deployMode === "persistent-local"
+        ? "Optionally run the demo seed flow on the same chain if you want a fuller post-launch walkthrough."
+        : "If you want a demo-style system state later, run the seed tooling against a compatible network with explicit addresses configured.",
+    ],
     notes: profile.notes,
+  };
+}
+
+function buildLaunchPacket(launchPlan) {
+  return {
+    version: "launch-packet-v1",
+    exportedAt: new Date().toISOString(),
+    systemLabel: launchPlan.systemLabel,
+    networkProfile: launchPlan.profile.networkName,
+    command: launchPlan.command,
+    requiredEnvVars: launchPlan.envVars,
+    envExample: launchPlan.envExample,
+    modules: launchPlan.modules,
+    handoffSteps: launchPlan.handoffSteps,
+    configPreview: launchPlan.configPreview,
+    readiness: launchPlan.readiness,
+    nextSteps: launchPlan.nextSteps,
+    notes: [
+      "This packet is a review and execution aid for the existing off-chain deployment flow.",
+      "It does not deploy contracts by itself and does not represent an on-chain factory launch.",
+      "After a real deployment, paste the deploy script JSON output back into the launcher to configure the dashboard for the new instance.",
+    ],
   };
 }
 
@@ -1786,6 +2320,359 @@ function loadStoredConfig() {
 
 function storeConfig(config) {
   window.localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(config));
+}
+
+function buildShareableDemoState() {
+  const config = latestConfig ?? readFormConfig();
+  const roleView = latestState === null ? null : deriveRoleView(latestState);
+  const currentRecord = findSavedInstance(config);
+  const activeDistributionCount = latestState === null
+    ? null
+    : latestState.distributor.distributions.filter((distribution) =>
+      distribution.status === "loaded" && distribution.stateCode === 1
+    ).length;
+
+  return {
+    version: "demo-state-v1",
+    exportedAt: new Date().toISOString(),
+    source: latestState === null ? "dashboard-config" : "live-dashboard-read",
+    authoritativeConfig: {
+      rpcUrl: config.rpcUrl,
+      addresses: config.addresses,
+      trackedBuckets: config.trackedBuckets,
+      trackedDistributions: config.trackedDistributions,
+    },
+    instanceMetadata: {
+      label: currentRecord?.label ?? inferInstanceLabel({ config, state: latestState }),
+      sourceType: currentRecord?.sourceType ?? (latestState === null ? "dashboard-config" : "live-dashboard-read"),
+    },
+    convenienceMetadata: {
+      demoActors: config.demoActors ?? [],
+      history: config.history ?? structuredClone(demoDefaults.history),
+      roleMode: roleView?.modeLabel ?? "Unknown until live state is loaded",
+      rpcChain: latestState === null ? "Unknown until live state is loaded" : chainLabel(latestState.rpcChainId),
+      treasuryNativeBalance: latestState === null ? null : formatEth(latestState.treasury.totalBalance),
+      activeDistributionCount,
+      notes: [
+        "authoritativeConfig is the reusable part of this export: RPC URL, contract addresses, and tracked ids.",
+        "convenienceMetadata is for demo readability only. It helps another dashboard instance explain the setup, but it does not recreate chain state.",
+        "This export does not include private keys, historical storage, or a full on-chain snapshot.",
+      ],
+    },
+  };
+}
+
+function parseImportedDemoState(rawText) {
+  const trimmed = rawText.trim();
+
+  if (trimmed.length === 0) {
+    throw new Error("Paste a shared state bundle or choose a state file first.");
+  }
+
+  let parsed;
+
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    throw new Error("The shared state input is not valid JSON.");
+  }
+
+  if (parsed.version === "demo-state-v1" && parsed.authoritativeConfig !== undefined) {
+    const config = normalizeDashboardConfig({
+      ...parsed.authoritativeConfig,
+      demoActors: parsed.convenienceMetadata?.demoActors,
+      history: parsed.convenienceMetadata?.history,
+    });
+
+    return {
+      config,
+      instanceRecord: buildInstanceRecord({
+        config,
+        sourceType: "shareable-state",
+        label: parsed.instanceMetadata?.label,
+        metadata: {
+          importedFrom: parsed.source,
+          roleMode: parsed.convenienceMetadata?.roleMode,
+          networkLabel: parsed.convenienceMetadata?.rpcChain,
+          sourceType: parsed.instanceMetadata?.sourceType,
+        },
+      }),
+    };
+  }
+
+  if (parsed.deployedAddresses !== undefined) {
+    const config = normalizeDashboardConfig({
+      rpcUrl: latestConfig?.rpcUrl ?? demoDefaults.rpcUrl,
+      addresses: parsed.deployedAddresses,
+      trackedBuckets: parsed.demoStory?.operationsBucketId === undefined
+        ? []
+        : [
+          {
+            id: parsed.demoStory.operationsBucketId,
+            label: "Seeded operating bucket",
+          },
+        ],
+      trackedDistributions: parsed.demoStory?.distributionId === undefined
+        ? []
+        : [
+          {
+            id: parsed.demoStory.distributionId,
+            label: parsed.demoStory.distributionLabel ?? "Seeded distribution event",
+          },
+      ],
+      demoActors: parsed.demoActors,
+      history: latestConfig?.history ?? structuredClone(demoDefaults.history),
+    });
+
+    const sourceType = parsed.preset !== undefined || parsed.handoffSteps !== undefined
+      ? "deployment-output"
+      : "seeded-demo";
+
+    return {
+      config,
+      instanceRecord: buildInstanceRecord({
+        config,
+        sourceType,
+        metadata: {
+          importedFrom: sourceType,
+          networkLabel: parsed.networkLabel ?? parsed.network,
+          chainId: parsed.chainId === undefined ? "" : String(parsed.chainId),
+          presetLabel: parsed.preset?.label,
+          roleMode: parsed.governance?.tokenOwner === undefined
+            ? ""
+            : inferRoleModeFromDeploymentOutput(parsed),
+        },
+      }),
+    };
+  }
+
+  if (parsed.rpcUrl !== undefined && parsed.addresses !== undefined) {
+    const config = normalizeDashboardConfig(parsed);
+
+    return {
+      config,
+      instanceRecord: buildInstanceRecord({
+        config,
+        sourceType: "dashboard-config",
+      }),
+    };
+  }
+
+  throw new Error(
+    "This JSON does not look like a dashboard export bundle, a seed script JSON summary, or a direct dashboard config object.",
+  );
+}
+
+function normalizeDashboardConfig(partialConfig) {
+  return {
+    rpcUrl: typeof partialConfig.rpcUrl === "string" && partialConfig.rpcUrl.trim().length > 0
+      ? partialConfig.rpcUrl.trim()
+      : demoDefaults.rpcUrl,
+    addresses: {
+      governanceToken: normalizeMaybeText(
+        partialConfig.addresses?.governanceToken,
+        demoDefaults.addresses.governanceToken,
+      ),
+      treasury: normalizeMaybeText(
+        partialConfig.addresses?.treasury,
+        demoDefaults.addresses.treasury,
+      ),
+      distributor: normalizeMaybeText(
+        partialConfig.addresses?.distributor,
+        demoDefaults.addresses.distributor,
+      ),
+      governanceTimelock: normalizeMaybeText(
+        partialConfig.addresses?.governanceTimelock,
+        demoDefaults.addresses.governanceTimelock,
+      ),
+      governanceGovernor: normalizeMaybeText(
+        partialConfig.addresses?.governanceGovernor,
+        demoDefaults.addresses.governanceGovernor,
+      ),
+    },
+    trackedBuckets: normalizeTrackedItems(
+      partialConfig.trackedBuckets,
+      demoDefaults.trackedBuckets,
+      "Tracked bucket",
+    ),
+    trackedDistributions: normalizeTrackedItems(
+      partialConfig.trackedDistributions,
+      demoDefaults.trackedDistributions,
+      "Tracked distribution",
+    ),
+    demoActors: normalizeDemoActors(
+      partialConfig.demoActors,
+      demoDefaults.demoActors ?? [],
+    ),
+    history: normalizeHistoryConfig(partialConfig.history),
+  };
+}
+
+function normalizeInstanceRecord(value) {
+  const config = normalizeDashboardConfig(value?.config ?? value ?? {});
+  const metadata = normalizeInstanceMetadata(value?.metadata);
+
+  return {
+    id: normalizeMaybeText(value?.id, buildInstanceId(config)),
+    label: normalizeMaybeText(
+      value?.label,
+      inferInstanceLabel({ config, metadata }),
+    ),
+    sourceType: normalizeMaybeText(value?.sourceType, "dashboard-config"),
+    savedAt: normalizeMaybeText(value?.savedAt, new Date().toISOString()),
+    config,
+    metadata,
+  };
+}
+
+function normalizeInstanceMetadata(value) {
+  return {
+    networkLabel: normalizeMaybeText(value?.networkLabel, ""),
+    chainId: normalizeMaybeText(value?.chainId, ""),
+    presetLabel: normalizeMaybeText(value?.presetLabel, ""),
+    roleMode: normalizeMaybeText(value?.roleMode, ""),
+    readinessLabel: normalizeMaybeText(value?.readinessLabel, ""),
+    treasuryNativeBalance: normalizeMaybeText(value?.treasuryNativeBalance, ""),
+    activeDistributionCount: normalizeMaybeText(value?.activeDistributionCount, ""),
+    proposalCount: normalizeMaybeText(value?.proposalCount, ""),
+    importedFrom: normalizeMaybeText(value?.importedFrom, ""),
+    sourceType: normalizeMaybeText(value?.sourceType, ""),
+  };
+}
+
+function buildInstanceId(config) {
+  return [
+    normalizeMaybeText(config.rpcUrl, demoDefaults.rpcUrl).toLowerCase(),
+    lower(config.addresses?.governanceToken),
+    lower(config.addresses?.treasury),
+    lower(config.addresses?.distributor),
+    lower(config.addresses?.governanceTimelock),
+    lower(config.addresses?.governanceGovernor),
+  ].join("|");
+}
+
+function inferInstanceLabel({ config, state = null, metadata = {} }) {
+  if (typeof metadata.label === "string" && metadata.label.trim().length > 0) {
+    return metadata.label.trim();
+  }
+
+  if (typeof metadata.networkLabel === "string" && metadata.networkLabel.trim().length > 0) {
+    if (typeof metadata.presetLabel === "string" && metadata.presetLabel.trim().length > 0) {
+      return `${metadata.networkLabel.trim()} - ${metadata.presetLabel.trim()}`;
+    }
+
+    return `${metadata.networkLabel.trim()} instance`;
+  }
+
+  if (state !== null && isLocalDemoMode(state)) {
+    return "Seeded local demo instance";
+  }
+
+  const rpcUrl = normalizeMaybeText(config.rpcUrl, demoDefaults.rpcUrl).toLowerCase();
+
+  if (rpcUrl.includes("localhost") || rpcUrl.includes("127.0.0.1")) {
+    return "Local governance capital instance";
+  }
+
+  return "Governance capital instance";
+}
+
+function buildInstanceRecord({
+  config,
+  state = null,
+  sourceType,
+  label,
+  metadata = {},
+}) {
+  const roleView = state === null ? null : deriveRoleView(state);
+  const healthView = state === null ? null : deriveHealthView(state);
+  const activeDistributionCount = state === null
+    ? metadata.activeDistributionCount
+    : state.distributor.distributions.filter((distribution) =>
+      distribution.status === "loaded" && distribution.stateCode === 1
+    ).length.toString();
+  const proposalCount = state === null
+    ? metadata.proposalCount
+    : state.governance.proposalCount.toString();
+  const treasuryNativeBalance = state === null
+    ? metadata.treasuryNativeBalance
+    : formatEth(state.treasury.totalBalance);
+
+  return normalizeInstanceRecord({
+    id: buildInstanceId(config),
+    label,
+    sourceType,
+    savedAt: new Date().toISOString(),
+    config,
+    metadata: {
+      ...metadata,
+      networkLabel: normalizeMaybeText(
+        metadata.networkLabel,
+        state === null ? inferNetworkLabelFromRpc(config.rpcUrl) : chainLabel(state.rpcChainId),
+      ),
+      chainId: normalizeMaybeText(
+        metadata.chainId,
+        state === null ? "" : normalizeChainId(state.rpcChainId),
+      ),
+      roleMode: normalizeMaybeText(metadata.roleMode, roleView?.modeLabel ?? ""),
+      readinessLabel: normalizeMaybeText(metadata.readinessLabel, healthView?.readinessLabel ?? ""),
+      treasuryNativeBalance: normalizeMaybeText(treasuryNativeBalance, ""),
+      activeDistributionCount: normalizeMaybeText(activeDistributionCount, ""),
+      proposalCount: normalizeMaybeText(proposalCount, ""),
+      importedFrom: normalizeMaybeText(metadata.importedFrom, sourceType),
+      sourceType: normalizeMaybeText(metadata.sourceType, sourceType),
+    },
+  });
+}
+
+function findSavedInstance(config) {
+  const instanceId = buildInstanceId(config);
+  return instanceRegistry.find((item) => item.id === instanceId) ?? null;
+}
+
+function upsertInstanceRecord(record) {
+  const normalized = normalizeInstanceRecord(record);
+  const currentIndex = instanceRegistry.findIndex((item) => item.id === normalized.id);
+
+  if (currentIndex === -1) {
+    instanceRegistry = [normalized, ...instanceRegistry];
+  } else {
+    const existing = instanceRegistry[currentIndex];
+    const merged = normalizeInstanceRecord({
+      ...existing,
+      ...normalized,
+      metadata: {
+        ...existing.metadata,
+        ...normalized.metadata,
+      },
+      savedAt: new Date().toISOString(),
+    });
+    instanceRegistry = instanceRegistry.map((item, index) => index === currentIndex ? merged : item);
+  }
+
+  instanceRegistry = instanceRegistry
+    .slice()
+    .sort((left, right) => right.savedAt.localeCompare(left.savedAt));
+  storeInstanceRegistry(instanceRegistry);
+  renderInstanceManager();
+
+  return normalized;
+}
+
+function syncSavedInstanceFromLiveState(config, state) {
+  const existing = findSavedInstance(config);
+
+  if (existing === null) {
+    return;
+  }
+
+  upsertInstanceRecord(buildInstanceRecord({
+    config,
+    state,
+    sourceType: existing.sourceType,
+    label: existing.label,
+    metadata: existing.metadata,
+  }));
 }
 
 function hydrateForm(config) {
@@ -1833,6 +2720,47 @@ function parseTrackedItems(value) {
         id: (id ?? "").trim(),
       };
     });
+}
+
+function normalizeTrackedItems(value, fallback, defaultLabel) {
+  if (!Array.isArray(value) || value.length === 0) {
+    return structuredClone(fallback);
+  }
+
+  return value
+    .map((item, index) => ({
+      id: normalizeMaybeText(item?.id, ""),
+      label: normalizeMaybeText(item?.label, `${defaultLabel} ${index + 1}`),
+    }))
+    .filter((item) => item.id.length > 0);
+}
+
+function normalizeDemoActors(value, fallback) {
+  if (!Array.isArray(value) || value.length === 0) {
+    return structuredClone(fallback);
+  }
+
+  return value
+    .map((actor, index) => ({
+      role: normalizeRoleLabel(actor?.role, `Demo actor ${index + 1}`),
+      walletIndex: typeof actor?.walletIndex === "number" ? actor.walletIndex : index,
+      address: normalizeMaybeText(actor?.address, ""),
+      story: normalizeMaybeText(actor?.story, "Shared demo actor."),
+    }))
+    .filter((actor) => actor.address.length > 0);
+}
+
+function normalizeHistoryConfig(value) {
+  return {
+    lookbackBlocks: normalizePositiveInteger(
+      value?.lookbackBlocks,
+      demoDefaults.history.lookbackBlocks,
+    ),
+    maxItems: normalizePositiveInteger(
+      value?.maxItems,
+      demoDefaults.history.maxItems,
+    ),
+  };
 }
 
 function metricCard(label, value) {
@@ -2178,6 +3106,69 @@ function buildRoleRow({ label, controller, expected, isExpected, copy }) {
   };
 }
 
+function instanceSourceLabel(sourceType) {
+  if (sourceType === "deployment-output") {
+    return "Deployment output";
+  }
+  if (sourceType === "shareable-state") {
+    return "Shared state";
+  }
+  if (sourceType === "seeded-demo") {
+    return "Seeded demo";
+  }
+  if (sourceType === "dashboard-config") {
+    return "Manual config";
+  }
+
+  return "Saved instance";
+}
+
+function instanceCategory(record) {
+  if ((record.metadata.roleMode ?? "").toLowerCase().includes("governance handoff")) {
+    return "treasury";
+  }
+
+  if (record.sourceType === "deployment-output") {
+    return "governance";
+  }
+
+  return "distribution";
+}
+
+function inferNetworkLabelFromRpc(rpcUrl) {
+  const normalized = normalizeMaybeText(rpcUrl, demoDefaults.rpcUrl).toLowerCase();
+
+  if (normalized.includes("sepolia")) {
+    return "Ethereum Sepolia";
+  }
+
+  if (normalized.includes("localhost") || normalized.includes("127.0.0.1")) {
+    return "Localhost JSON-RPC";
+  }
+
+  return "Custom RPC";
+}
+
+function inferRoleModeFromDeploymentOutput(parsed) {
+  const timelock = lower(parsed.deployedAddresses?.governanceTimelock);
+  const governor = lower(parsed.deployedAddresses?.governanceGovernor);
+  const tokenOwner = lower(parsed.governance?.tokenOwner);
+  const treasuryOwner = lower(parsed.governance?.treasuryOwner);
+  const distributorOwner = lower(parsed.governance?.distributorOwner);
+  const proposer = lower(parsed.governance?.timelockProposer);
+  const executor = lower(parsed.governance?.timelockExecutor);
+  const admin = lower(parsed.governance?.timelockAdmin);
+
+  const fullyHandedOff = tokenOwner === timelock &&
+    treasuryOwner === timelock &&
+    distributorOwner === timelock &&
+    proposer === governor &&
+    executor === governor &&
+    admin === timelock;
+
+  return fullyHandedOff ? "Governance handoff complete" : "Bootstrap or partial handoff";
+}
+
 function formatHistoryMoment(timestamp) {
   if (timestamp === null || timestamp === undefined) {
     return "Unknown time";
@@ -2197,6 +3188,21 @@ function formatOptionalMoment(timestamp) {
   }
 
   return formatHistoryMoment(timestamp);
+}
+
+function formatSavedMoment(value) {
+  const timestamp = Date.parse(value);
+
+  if (Number.isNaN(timestamp)) {
+    return "Unknown save time";
+  }
+
+  return new Date(timestamp).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function emptyState(message) {
@@ -2385,6 +3391,19 @@ async function copyText(value) {
   await navigator.clipboard.writeText(value);
 }
 
+function downloadTextFile(fileName, content) {
+  const blob = new Blob([content], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = fileName;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function normalizeChainId(chainId) {
   if (chainId === null || chainId === undefined) {
     return "";
@@ -2403,6 +3422,32 @@ function shortenTxHash(txHash) {
 
 function lower(value) {
   return (value ?? "").toLowerCase();
+}
+
+function normalizeMaybeText(value, fallback) {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : fallback;
+}
+
+function normalizeRoleLabel(value, fallback) {
+  const normalized = normalizeMaybeText(value, fallback);
+
+  if (normalized.includes("-")) {
+    return normalized
+      .split("-")
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+  }
+
+  return normalized;
+}
+
+function normalizePositiveInteger(value, fallback) {
+  return typeof value === "number" && Number.isInteger(value) && value > 0
+    ? value
+    : fallback;
 }
 
 function escapeHtml(value) {

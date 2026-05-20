@@ -35,12 +35,12 @@
 
         <section id="launch-system-section" class="panel config-panel">
           <div class="panel-header">
-            <h2>Launch System</h2>
+            <h2>Launch New Instance</h2>
             <p>
-              This is a thin product-facing deployer UX for the current MVP.
-              It prepares the same deployment shape that <code>scripts/deploy-v3.ts</code>
-              executes, but it does not pretend there is already an on-chain
-              one-click factory.
+              This is a thin product-facing launcher for the current MVP. It helps
+              you prepare a new governance capital system instance around the same
+              off-chain deployment and handoff flow that <code>scripts/deploy-v3.ts</code>
+              already runs today.
             </p>
           </div>
 
@@ -104,14 +104,20 @@
               <button id="copy-launch-command" type="button" class="ghost-button">
                 Copy deploy command
               </button>
+              <button id="copy-launch-env" type="button" class="ghost-button">
+                Copy env setup
+              </button>
               <button id="copy-launch-config" type="button" class="ghost-button">
                 Copy launch config
+              </button>
+              <button id="download-launch-packet" type="button" class="ghost-button">
+                Download launch packet
               </button>
             </div>
           </form>
 
           <p id="deployer-status-banner" class="status-banner" data-tone="loading">
-            Launch planner is ready. Generate a plan to review the deployment shape.
+            Launcher is ready. Generate a plan to review the deployment shape and prepare a real script-based launch.
           </p>
 
           <div class="launch-grid">
@@ -130,9 +136,80 @@
               <div id="launch-handoff-panel"></div>
             </div>
 
+            <div class="action-card">
+              <h3>Launch Readiness</h3>
+              <div id="launch-readiness-panel"></div>
+            </div>
+
+            <div class="action-card">
+              <h3>After Launch</h3>
+              <div id="launch-next-steps-panel"></div>
+            </div>
+
             <div class="action-card launch-output-card">
               <h3>Script Mapping</h3>
               <div id="launch-command-panel"></div>
+            </div>
+          </div>
+
+          <input
+            id="import-launch-output-file"
+            type="file"
+            accept=".json,application/json"
+            hidden
+          />
+
+          <div class="config-grid tall">
+            <label>
+              <span>Paste deployment output JSON</span>
+              <textarea
+                id="launch-output-import"
+                rows="6"
+                placeholder="Paste the JSON printed by scripts/deploy-v3.ts after a real launch."
+              ></textarea>
+            </label>
+          </div>
+
+          <div class="button-row compact-row">
+            <button id="apply-launch-output" type="button" class="ghost-button">
+              Use deployment output in dashboard
+            </button>
+            <button id="load-launch-output-file" type="button" class="ghost-button">
+              Load deployment output file
+            </button>
+          </div>
+        </section>
+
+        <section id="instance-management-section" class="panel config-panel">
+          <div class="panel-header">
+            <h2>Instance Shelf</h2>
+            <p>
+              Keep a small browser-local list of known governance capital system
+              instances. This shelf is built from deployment output, shared demo
+              state, or a manually saved dashboard config. It is not a hosted
+              multi-instance backend.
+            </p>
+          </div>
+
+          <div class="button-row compact-row">
+            <button id="save-current-instance" type="button" class="ghost-button">
+              Save current dashboard as instance
+            </button>
+          </div>
+
+          <p id="instance-status-banner" class="status-banner" data-tone="loading">
+            Instance shelf is ready. Import deployment output or save the current dashboard to build a local instance list.
+          </p>
+
+          <div class="launch-grid">
+            <div class="action-card">
+              <h3>Selected Instance</h3>
+              <div id="instance-summary-panel"></div>
+            </div>
+
+            <div class="action-card launch-output-card">
+              <h3>Known Instances</h3>
+              <div id="instance-list-panel"></div>
             </div>
           </div>
         </section>
@@ -199,8 +276,47 @@
               <button id="reset-defaults" type="button" class="ghost-button">
                 Reset local demo defaults
               </button>
+              <button id="copy-demo-state" type="button" class="ghost-button">
+                Copy shareable state
+              </button>
+              <button id="download-demo-state" type="button" class="ghost-button">
+                Download state file
+              </button>
+              <button id="load-demo-state-file" type="button" class="ghost-button">
+                Load state file
+              </button>
             </div>
           </form>
+
+          <input
+            id="import-demo-state-file"
+            type="file"
+            accept=".json,application/json"
+            hidden
+          />
+
+          <div class="config-grid tall">
+            <label>
+              <span>Paste shared demo state or seeded JSON</span>
+              <textarea
+                id="demo-state-import"
+                rows="6"
+                placeholder="Paste a copied dashboard state bundle or the seed script JSON output here."
+              ></textarea>
+            </label>
+          </div>
+
+          <div class="button-row compact-row">
+            <button id="apply-demo-state" type="button" class="ghost-button">
+              Load pasted state
+            </button>
+          </div>
+
+          <p id="share-state-banner" class="status-banner" data-tone="loading">
+            Export the current dashboard setup or load a shared demo bundle. This
+            reuses addresses and tracked demo metadata, but it does not recreate
+            full chain state by itself.
+          </p>
         </section>
 
         <section id="connection-status-section" class="panel status-panel">

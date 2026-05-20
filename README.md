@@ -30,6 +30,8 @@ The current repo demonstrates a simple but coherent capital flow:
   - canonical deployment and ownership handoff flow
 - `scripts/seed-v3-demo.ts`
   - local demo seed flow that leaves the system in a useful example state
+- `scripts/prepare-distribution-claims.ts`
+  - lightweight claim-artifact generator for seeded or repeatable Distributor demos
 - `frontend/`
   - minimal local dashboard with a launch planner, wallet connection, and a couple of safe MVP actions
 - `test/nodejs/*`
@@ -66,6 +68,13 @@ For a real testnet deployment:
 npx hardhat run scripts/deploy-v3.ts --build-profile production --network sepolia
 ```
 
+For an explicit preset override:
+
+```powershell
+$env:GOVCAP_DEPLOY_PRESET="conservative-governance"
+npx hardhat run scripts/deploy-v3.ts --build-profile production --network sepolia
+```
+
 For the local dashboard demo:
 
 ```bash
@@ -96,6 +105,7 @@ npm run deploy:local
 npm run seed:demo
 npm run seed:demo:ui
 npm run ui:dev
+npx hardhat run scripts/prepare-distribution-claims.ts --build-profile production --network hardhatMainnet
 npx hardhat run scripts/deploy-v3.ts --build-profile production --network sepolia
 ```
 
@@ -118,6 +128,8 @@ Command notes:
   - seed the current MVP onto a persistent local JSON-RPC chain for the demo dashboard
 - `npm run ui:dev`
   - serve the launch planner and demo dashboard at `http://127.0.0.1:4173`
+- `npx hardhat run scripts/prepare-distribution-claims.ts --build-profile production --network hardhatMainnet`
+  - generate a lightweight Distributor claim artifact with current self-claim requests plus future-compatible Merkle data
 
 ## Local Demo Flow
 
@@ -132,6 +144,7 @@ The local demo script creates a readable example state:
 7. spend part of that bucket
 8. create and fund one community distribution event
 9. leave that distribution unclaimed so there is still a next action to demo
+10. print a claim package for the seeded distribution claimant
 
 Important local note:
 - `hardhatMainnet` is an ephemeral local simulation
@@ -193,19 +206,67 @@ Current testnet assumptions:
 - the current deployment flow is bootstrap-driven from one deployer account before timelock handoff
 - contract verification is not wired into this MVP deploy script yet
 
+## Configuration Presets
+
+Deployment parameters now use a small preset system so instance creation is more repeatable.
+
+Included presets:
+- `local-demo`
+  - fast local governance timing for rehearsals, seeded demos, and test-friendly iteration
+- `testnet-demo`
+  - realistic public testnet timing without changing the MVP architecture
+- `conservative-governance`
+  - slower and stricter governance timing for a more cautious instance posture
+
+Standardized parameters:
+- token name and symbol
+- initial token supply
+- bootstrap self-delegation behavior
+- timelock delay
+- voting delay
+- voting period
+- proposal threshold
+- quorum numerator
+- treasury and distributor deployment assumptions
+
+How preset selection works:
+- `hardhatMainnet` defaults to `local-demo`
+- `localhost` defaults to `local-demo`
+- `sepolia` defaults to `testnet-demo`
+- set `GOVCAP_DEPLOY_PRESET` to override the default choice
+
+Example commands:
+
+```bash
+npx hardhat run scripts/deploy-v3.ts --build-profile production --network localhost
+npx hardhat run scripts/deploy-v3.ts --build-profile production --network sepolia
+```
+
+PowerShell preset override:
+
+```powershell
+$env:GOVCAP_DEPLOY_PRESET="conservative-governance"
+npx hardhat run scripts/deploy-v3.ts --build-profile production --network sepolia
+```
+
+See:
+- [scripts/config/deploy-v3.ts](/C:/Users/914al/governance-system-maker/scripts/config/deploy-v3.ts)
+- [docs/configuration-presets.md](/C:/Users/914al/governance-system-maker/docs/configuration-presets.md)
+
 ## Demo Dashboard
 
 The repo now includes a minimal local launch planner and dashboard under `frontend/`.
 
-## Launch Planner
+## Launch New Instance
 
-The first-pass deployer UX is intentionally honest about the current architecture.
+The first-pass launcher UX is intentionally honest about the current architecture.
 
 What it does:
 - collects a small launch profile such as network, token identity, initial supply, and timelock delay
 - shows the exact module stack that the MVP deployment script will deploy
 - shows the ownership and governance handoff sequence
-- generates the real deploy command and config preview that map to `scripts/deploy-v3.ts`
+- generates the real deploy command, env setup, launch packet, and config preview that map to `scripts/deploy-v3.ts`
+- helps you paste a real deployment output JSON back into the dashboard so the new instance can be inspected immediately
 
 What it does not do yet:
 - deploy contracts directly from the browser
@@ -231,10 +292,13 @@ npm run ui:dev
 http://127.0.0.1:4173
 ```
 
-3. Use the `Launch System` section to:
+3. Use the `Launch New Instance` section to:
 - choose a local or Sepolia launch profile
 - set the small set of launch parameters exposed in the MVP planner
-- review the deploy command, env requirements, config preview, and handoff steps
+- review the deploy command, env requirements, config preview, readiness checklist, and handoff steps
+- optionally download a launch packet for sharing or operator handoff
+- run the real deploy command in a terminal
+- paste the resulting `Deployment Output (JSON)` back into the launcher to configure the dashboard for the new instance
 
 The planner maps directly to:
 - [scripts/deploy-v3.ts](/C:/Users/914al/governance-system-maker/scripts/deploy-v3.ts)
@@ -252,12 +316,19 @@ What it does today:
 - shows a compact system health view for funding, handoff posture, and basic readiness signals
 - reads timelock ownership wiring
 - shows a lightweight recent activity feed from treasury, distributor, and governor logs
+- can export or reload a shareable demo-state bundle for repeated dashboard demos
 - connects an injected wallet such as MetaMask
 - funds treasury ETH custody directly from the connected wallet
 - exposes a small treasury action form for bucket allocation and bucket spend proposals
 - presents distributor events as claim-oriented cards with asset, funded, claimed, remaining, and active status details
 - claims the remaining amount from one tracked funded distribution when the selected event is active and the connected wallet is on the right chain
 - supports a narrow single-action governance proposal flow with vote, queue, and execute actions when the connected wallet and proposal state allow it
+
+What the current launcher flow supports:
+- reviewing the module stack for a new instance before deployment
+- preparing a launch packet with command, env setup, config preview, handoff steps, and next steps
+- staying honest that deployment still happens through the off-chain Hardhat script
+- loading the real deploy script JSON output back into the dashboard after launch
 
 What it intentionally does not do yet:
 - direct governance-owned bucket management
@@ -301,6 +372,54 @@ http://127.0.0.1:4173
 - review `Distributor Events` to see which tracked event is active and why it is or is not claimable
 - use `Claim Distribution` to claim the remaining amount from the tracked seeded distribution
 
+To reuse or share a demo setup:
+- use `Copy shareable state` to copy a reusable dashboard bundle
+- use `Download state file` to save that bundle as JSON
+- use `Load state file` or paste JSON into `Paste shared demo state or seeded JSON` on another local dashboard instance
+- you can also paste the `Seeded State (JSON)` block printed by `npm run seed:demo:ui`
+
+## Instance Management
+
+The dashboard now includes an `Instance Shelf` for lightweight multi-instance work.
+
+What it is:
+- a browser-local list of known instances
+- built from real deployment output JSON, shared demo-state bundles, seeded demo JSON, or a manually saved dashboard config
+- a convenience layer for switching between systems, not a hosted backend or authoritative registry
+
+What gets stored for each instance:
+- RPC URL
+- deployed contract addresses
+- tracked bucket ids
+- tracked distribution ids
+- small convenience metadata such as source, network label, and last saved time
+
+How to use it:
+
+1. Start the dashboard:
+
+```bash
+npm run ui:dev
+```
+
+2. Open:
+
+```text
+http://127.0.0.1:4173
+```
+
+3. Build your shelf in one of three ways:
+- paste real `Deployment Output (JSON)` into `Launch New Instance`
+- load a previously exported shareable demo-state file
+- point the dashboard at a system manually, then click `Save current dashboard as instance`
+
+4. Use `Known Instances` to switch between saved systems.
+
+How instance discovery works today:
+- there is no backend instance index yet
+- the shelf is populated only from the data you import or save in this browser
+- live health, control posture, and balances still come from direct reads against the selected RPC and contracts
+
 Suggested local demo roles:
 - `Bootstrap admin` (`Hardhat account #0`)
   - deployer, bootstrap actor, and seeded governance driver
@@ -340,6 +459,37 @@ What the current distributor claim view supports:
 - selecting an event from the distributor view and using the real self-claim flow for the full remaining funded amount
 - being honest about the current MVP limitation that richer entitlement logic or proof-based claims are not part of this flow yet
 
+## Distributor Claim Tooling
+
+The current MVP Distributor does not verify Merkle proofs on-chain yet. Claims are still simple self-claims:
+
+- `distributionId`
+- `recipient`
+- `amount`
+
+To make that flow easier to test, seed, and explain, the repo now includes a lightweight claim-artifact generator:
+
+```bash
+npx hardhat run scripts/prepare-distribution-claims.ts --build-profile production --network hardhatMainnet
+```
+
+What it produces:
+- the exact current MVP `claim` request payload shape for the seeded claimant
+- a deterministic claim leaf
+- a future-compatible Merkle root
+- a Merkle proof array for each listed claim entry
+- notes that explain which parts are usable today and which parts are future-oriented
+
+How it relates to the current claim flow:
+- `currentMvpClaimRequest` is usable with the current Distributor contract today
+- `merkleRoot` and `merkleProof` are explanatory and test/demo-friendly artifacts for a richer entitlement model later
+
+The local demo seed also now includes this claim artifact inside its printed `Seeded State (JSON)` output, so a demo operator can copy one bundle that includes:
+- deployed addresses
+- seeded actor roles
+- tracked distribution id
+- claim package data for the seeded distribution claimant
+
 What the current governance view supports:
 - reading proposals from real governor events plus live on-chain proposal state
 - creating a small set of honest single-action proposals that match the current governor contract
@@ -368,6 +518,17 @@ What the current system health view supports:
 - whether the system looks bootstrap-managed or governance-controlled
 - lightweight warnings when the treasury is unfunded, no active distributions are loaded, or governance handoff looks incomplete
 - an honest note that these are direct-read MVP health signals, not a full monitoring backend
+
+What the current shareable demo-state flow supports:
+- exporting the current dashboard RPC URL, deployed addresses, and tracked bucket and distribution ids
+- including convenience demo metadata such as local demo actors, history settings, and a small live-status snapshot when available
+- reloading that bundle into another local dashboard instance
+- importing the local seed script JSON output as a shortcut to rebuild dashboard config
+
+What it does not export:
+- private keys or wallet secrets
+- a full chain snapshot
+- historical storage beyond the small convenience metadata included in the bundle
 
 Current analytics compromise:
 - the feed reads recent direct contract logs from the configured addresses over a recent block window
@@ -433,9 +594,27 @@ The most useful repo guidance lives in:
 
 ## Docs
 
+- [docs/audit-readiness.md](/C:/Users/914al/governance-system-maker/docs/audit-readiness.md)
+- [docs/configuration-presets.md](/C:/Users/914al/governance-system-maker/docs/configuration-presets.md)
+- [docs/module-review-guide.md](/C:/Users/914al/governance-system-maker/docs/module-review-guide.md)
 - [docs/README.md](/C:/Users/914al/governance-system-maker/docs/README.md)
 - [docs/developer-workflow.md](/C:/Users/914al/governance-system-maker/docs/developer-workflow.md)
 - [docs/deployer-flow.md](/C:/Users/914al/governance-system-maker/docs/deployer-flow.md)
+
+## Audit Readiness
+
+The repo now includes a small reviewer-oriented documentation layer for faster internal or external review preparation.
+
+Useful starting points:
+- [docs/audit-readiness.md](/C:/Users/914al/governance-system-maker/docs/audit-readiness.md)
+  - architecture, trust assumptions, ownership flow, invariants, and MVP limitations
+- [docs/module-review-guide.md](/C:/Users/914al/governance-system-maker/docs/module-review-guide.md)
+  - module boundaries, sensitive behaviors, and suggested review focus areas
+
+These notes are intentionally scoped:
+- they describe what is implemented now
+- they call out what is intentionally postponed
+- they do not claim that a full independent security audit has already happened
 
 ## Current Limits
 

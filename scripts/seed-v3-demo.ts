@@ -10,6 +10,7 @@ import {
   getSeedV3DemoConfig,
   type SeedV3DeploymentAddresses,
 } from "./config/seed-v3-demo.js";
+import { buildDistributionClaimArtifact } from "./config/distributor-claim-tooling.js";
 
 const { networkName, viem, networkHelpers } = await network.create();
 const publicClient = await viem.getPublicClient();
@@ -192,6 +193,20 @@ const [bucketAllocated, bucketSpent, bucketRemaining] =
 const distributionState = await deployed.distributor.read.distributionState([
   demoConfig.distributionId,
 ]);
+const claimArtifact = buildDistributionClaimArtifact({
+  distributionId: demoConfig.distributionId,
+  distributionLabel: demoConfig.distributionLabel,
+  asset: zeroAddress(),
+  totalAmount: demoConfig.distributionFunding,
+  claims: [
+    {
+      label: "Seeded distribution claimant",
+      recipient: distributionRecipientAddress,
+      amount: demoConfig.distributionFunding,
+      note: "Suggested claimant for the local seeded demo. The current MVP still uses self-claim, not proof-gated on-chain verification.",
+    },
+  ],
+});
 
 const finalState = {
   network: networkName,
@@ -217,6 +232,7 @@ const finalState = {
     operationsRecipient: operationsRecipientAddress,
     distributionRecipient: distributionRecipientAddress,
   },
+  claimArtifact,
   demoActors: [
     {
       role: "bootstrap-admin",
@@ -317,6 +333,13 @@ console.log(`Treasury recipient:  ${operationsRecipientAddress} (Hardhat account
 console.log(`Distribution id:     ${demoConfig.distributionId}`);
 console.log(`Claim recipient:     ${distributionRecipientAddress} (Hardhat account #3)`);
 console.log(`Viewer account:      ${viewerAddress} (Hardhat account #4)`);
+console.log("");
+console.log("Claim Package");
+console.log("=============");
+console.log(
+  `Current MVP claim request: distributionId=${demoConfig.distributionId}, recipient=${distributionRecipientAddress}, amount=${formatEth(demoConfig.distributionFunding)} ETH`,
+);
+console.log(`Future-compatible Merkle root: ${claimArtifact.proofModel.merkleRoot}`);
 console.log("");
 console.log("Seeded State (JSON)");
 console.log(JSON.stringify(finalState, bigintReplacer, 2));
